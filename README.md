@@ -9,6 +9,8 @@ LangGraph enhances customization and enables advanced features like RAG and pers
 
 The goal is to create a terminal-based AI pair programmer, similar to Aider [1], but powered by the DARS algorithm for improved decision-making and performance on coding tasks.
 
+**Note:** This project is currently under development and is not yet complete. Development is active and ongoing daily.
+
 ### References
 
 [1] Aider: https://github.com/Aider-AI/aider
