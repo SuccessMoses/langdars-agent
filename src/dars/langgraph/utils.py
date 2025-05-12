@@ -50,8 +50,8 @@ def last_n_history(history: List[Dict[str, Any]], n: int) ->  List[Dict[str, Any
 
 
 # fixme: add demonstration!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-def langgraph_node_to_message(node, n: int = 50) -> List[tuple[str, str]]:
-    history: List[Dict[str, Any]] = last_n_history(local_history(node), n)
+def langgraph_node_to_message(node, n: int = 50, expansion_context: str = None) -> List[tuple[str, str]]:
+    history: List[Dict[str, Any]] = last_n_history(local_history(node, expansion_context), n)
     output = []
     for entry in history:
         if entry["role"] == "user":
@@ -191,35 +191,21 @@ def observation_state_to_node(
 ) -> UserNode:
     open_file, working_dir = state
     if observation is None or observation.strip() == "":
-        templates = next_step_no_output_template.format(open_file=open_file, working_dir=working_dir)
+        template = next_step_no_output_template.format(open_file=open_file, working_dir=working_dir)
 
-    elif last_node.codegraph_context and last_node.codegraph_keyword:  # Just check the immediate node
-        templates = next_step_codegraph_template.format(
+    elif last_node.codegraph_context and last_node.codegraph_keyword:
+        template = next_step_codegraph_template.format(
             search_term=search_term,
             codegraph_context=codegraph_context,
             open_file=open_file,
             working_dir=working_dir,
         )
     else:
-        templates = next_step_template.format(observation=observation, open_file=open_file, working_dir=working_dir)
-
-    messages = []
-
-    for template in templates:
-        messages.append(
-            template.format(
-                observation,
-                state,
-                search_term,
-                codegraph_context,
-            )
-        )
-
-    message = "\n".join(messages)
+        template = next_step_template.format(observation=observation, open_file=open_file, working_dir=working_dir)
 
     return append_history({
         "role": "user", 
-        "content": message, 
+        "content": template, 
         "agent": self.name,
         "codegraph_context": last_node.codegraph_context,
         "codegraph_keyword": last_node.codegraph_keyword
