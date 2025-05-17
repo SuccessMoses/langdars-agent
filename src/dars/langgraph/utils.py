@@ -91,7 +91,8 @@ def _backtrack_history(node: DARSNode, history: List[Dict[str, Any]]):
 
 def local_history(node: DARSNode, expansion_context: str = None) -> list[dict[str, str]]:
     history = []
-    backtrack_history(node, history)
+
+    _backtrack_history(node, history)
     history = [entry for entry in history if entry["agent"] == self.name] # fixme pls!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
     base_history = DARS_CONFIG.history_processor(history) #fixme: history processor is not defined :(
@@ -182,18 +183,17 @@ def select_expansion(node: DARSNode, actions: str) -> None: # fixme-------------
 
 
 def observation_state_to_node(
-        self, 
         state: str, 
         observation: str, 
-        search_term: str,
-        codegraph_context: str,
+        search_term: str = "",
+        codegraph_context: str = "",
         last_node: AINode = None,
 ) -> UserNode:
     open_file, working_dir = state
     if observation is None or observation.strip() == "":
         template = next_step_no_output_template.format(open_file=open_file, working_dir=working_dir)
 
-    elif last_node.codegraph_context and last_node.codegraph_keyword:
+    elif codegraph_context != "" and search_term != "":
         template = next_step_codegraph_template.format(
             search_term=search_term,
             codegraph_context=codegraph_context,
@@ -207,8 +207,8 @@ def observation_state_to_node(
         "role": "user", 
         "content": template, 
         "agent": self.name,
-        "codegraph_context": last_node.codegraph_context,
-        "codegraph_keyword": last_node.codegraph_keyword
+        "codegraph_context": codegraph_context,
+        "codegraph_keyword": search_term,
     }, parent_node=last_node)
 
 def append_history(item: dict, parent_node: DARSNode = None, state: DARSState = None) -> DARSNode:

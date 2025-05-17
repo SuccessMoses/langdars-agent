@@ -17,7 +17,7 @@ from config import DARS_CONFIG
 #     # Add other config attributes as needed
 # # --- End DARSConfig Placeholder ---
 
-# --- Base DARSNode Class ---
+# --- Base DARSNode Class ---    
 @dataclass
 class DARSNode:
     """Represents a base node in the DARS tree."""
@@ -88,64 +88,38 @@ class AINode(DARSNode):
     expansion_prompt: Optional[str] = field(default=None) # Prompt used to generate candidates
 
 
-    def get_allowed_actions_in_expansion(self, dars_config: DARS_CONFIG) -> List[str]:
-        """
-        Determines the set of action types allowed for sampling alternative actions
-        based on the expansion history *from this node's action*.
-        This method is called on the Assistant node whose action is being expanded.
-        """
+    def get_allowed_actions_in_expansion(self, dars_config: DARS_CONFIG):
         if not self.expansion_history:
-            return (list(dars_config.action_expansion_limit.keys())
-                    if dars_config.action_expansion_limit is not None
+            return (list(dars_config.action_expansion_limit.keys()) 
+                    if dars_config.action_expansion_limit is not None 
                     else [])
 
-        if dars_config.allowed_action_in_expansion is None:
-             return []
-
-        # Logic remains the same, operating on self.expansion_history
-        first_action_in_hist = self.expansion_history[0].split()[0] # Get action name from history string
-
-        if first_action_in_hist not in dars_config.allowed_action_in_expansion:
+        first_action = self.expansion_history[0]
+        if first_action not in dars_config.allowed_action_in_expansion:
             return []
-
-        allowed_actions = set(dars_config.allowed_action_in_expansion[first_action_in_hist])
-
-        for i, action_str in enumerate(self.expansion_history[1:]):
-            action_type = action_str.split()[0]
-            if action_type not in dars_config.allowed_action_in_expansion:
+        
+        allowed_actions = set(dars_config.allowed_action_in_expansion[first_action])
+        
+        for action in self.expansion_history[1:]:
+            if action not in dars_config.allowed_action_in_expansion:
                 return []
-            actions_allowed_after_this = set(dars_config.allowed_action_in_expansion[action_type])
-            allowed_actions.intersection_update(actions_allowed_after_this)
+            allowed_actions.intersection_update(dars_config.allowed_action_in_expansion[action])
             if not allowed_actions:
                 return []
-
         if dars_config.action_expansion_limit is not None:
-            expandable_actions = set(dars_config.action_expansion_limit.keys())
-            allowed_actions.intersection_update(expandable_actions)
+            allowed_actions.intersection_update(dars_config.action_expansion_limit.keys())
 
         return list(allowed_actions)
 
-
-    def should_expand(self, dars_config: DARS_CONFIG) -> bool:
-        """
-        Determines if *this* AINode's action is currently eligible for expansion.
-        Checks if the action type is allowed by history and if the expansion budget remains.
-        """
-        if not self.action:
-             return False # Cannot expand if there's no action
-
-        action_type = self.action.split()[0]
-
-        allowed_action_types = self.get_allowed_actions_in_expansion(dars_config)
-        if not allowed_action_types or action_type not in allowed_action_types:
-            print(f"Action type '{action_type}' is not in the allowed list based on history from this node.")
+    def should_expand(self, dars_config: DARS_CONFIG):
+        allowed_actions = self.get_allowed_actions_in_expansion(dars_config)
+        action = self.action.split()[0]
+        if not allowed_actions or action not in allowed_actions:
             return False
-
+        
         if self._action_expansion_limit is not None:
-            remaining_budget = self._action_expansion_limit.get(action_type, 0) # Use .get for safety
-            return remaining_budget > 0
-        else:
-            return False # Cannot expand if limits are not tracked
+            return self._action_expansion_limit[action] > 0
+        return False
 
 
 class DARSState(TypedDict):

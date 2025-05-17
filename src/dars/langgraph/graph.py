@@ -6,22 +6,40 @@ from utils import (
     langgraph_node_to_message,
     get_expansion_prompt,
 )
+from data_model import (
+    SystemNode,
+    AINode,
+    UserNode,
+)
 
 from langchain_core.tools import tool
 from langgraph.prebuilt import ToolNode
 from langgraph.base import Send
+from langgraph.graph import StateGraph, START, END # fixme
 
 from typing import List, Tuple
+from typing_extensions import TypedDict
 
 from data_model import DARSState, DARSNode
 from config import DARS_CONFIG
 
-##### NODES #######
+from prompt import instance_template
+
+AGENT_NAME = "SWE-DARS"
+
+class GraphConfig:
+    issue: str
+
+##########################################
+#        NODES
+##########################################
+
 def setup(state: DARSState):
+
     env_state = state.env.get_state(state)
-    observation = "" # fixme-----------------------------
+
+    observation, initial_info = state.env.reset() # initial observation can be an empty string ""
     current_node = observation_state_to_node(env_state, observation)
-    current_node._depth = 0
 
     return {
         "current_node": current_node,
@@ -39,11 +57,10 @@ def should_expand(state: DARSState):
             assert current_node.children > 0
             return Send("expand", {"current_node" : current_node})
         else:
-            return "__end__"
+            return END
 
     assert current_node.children == 0
     return Send("forward")
-
 
 def forward(state: DARSState):
     current_node = state.current_node
@@ -79,12 +96,14 @@ def forward(state: DARSState):
             "content": f"THOUGHT: {output.thought}\nACTION: {output.action}", # fixme
             "thought": output.thought, # fixme
             "action": output.action,  # fixme
-            "agent": self.name,
+            "agent": AGENT_NAME,
         },
         parent_node=current_node,
     )
 
     env_state = state.env.state
+    
+    # this is always  true in this node
     if len(current_node.children) == 1:
         if_expand = assistant_node.should_expand(DARS_CONFIG)
         if if_expand:
@@ -110,11 +129,7 @@ def expand(state: DARSState):
     # print("--- Entering expand node ---")
     current_node = state["current_node"]  # This is expected to be a 'user' node
     assert current_node.role == "user"
-
-    # Get the assistant node whose action led to the current user node
-    node_to_expand_from = current_node.parent
-    assert node_to_expand_from is not None, "Cannot expand from root node or node without parent"
-    assert node_to_expand_from.role == "assistant", "Parent node must be an assistant node for expansion"
+    assert len(current_node.children) > 1
 
     # Get configuration for expansion
     agent_name = state["self_name"]
@@ -171,7 +186,7 @@ def expand(state: DARSState):
             "content": selected_raw_output,
             "thought": selected_thought,
             "action": selected_action,
-            "agent": "SWE-agent",  # fixme: agent_name is harcoded
+            "agent": AGENT_NAME,
             "critic_prompt": critic_prompt,
             "critic_response": critic_response,
             "expansion_prompt": expansion_context,
@@ -182,8 +197,6 @@ def expand(state: DARSState):
     tool_node = ToolNode()  # [ tool: List
     tool_output = tool_node.invoke({"messages": [ai_msg]})["messages"]
     observations = []
-
-    output = ai_msg.content
 
     search_term = ""
     codegraph_context = ""
@@ -199,25 +212,52 @@ def expand(state: DARSState):
 
     observation = "\n".join([obs for obs in observations if obs is not None])
 
-    env_state = state.env.get_state() # fixme: undefined, removed state argument
-
-    if len(current_node.children) == 1:
-
-        if assistant_node.should_expand(DARS_CONFIG):
-            assistant_node._action_expansion_limit[assistant_node.action.split()[0]] -= 1
-            for _ in range(DARS_CONFIG.num_expansions - 1):
-                state.node_stack.append(assistant_node.parent)
-            state.node_stack.sort(key=lambda x: x._depth)
+    env_state = state.env.get_state()
 
     current_node = observation_state_to_node(
         last_node=assistant_node,
         state=env_state,
         observation=observation,
-        search_term=search_term,  # fixme: undefined
-        codegraph_context=codegraph_context,  # fixme: undefined
+        search_term=search_term,
+        codegraph_context=codegraph_context,
     )
     assert current_node.role == "user"
     return {
         "current_node": current_node,
         "node_stack": state.node_stack,
     }
+
+
+##############################################
+# Graph Builder
+##############################################
+
+@dataclass
+class State(TypedDict):
+    current_node: DARSNode
+    node_stack: List
+    env: None
+    config: None
+
+    def __post_init__(self):
+        self.sys_msg: str = self.config.system_message
+        self.sys_msg +=  "\n" + instance_template.format(issue=self.config.issue)
+
+graph_builder = StateGraph(State)
+graph_builder.add_node("setup", setup)
+graph_builder.add_node("forward", forward)
+graph_builder.add_node("expand", expand)
+
+graph_builder.add_edge(START, "setup")
+graph_builder.add_edge("setup", "forward")
+graph_builder.add_conditional_edge(
+    "forward",
+    should_expand,
+    {"forward": forward, "expand": expand, END: END}
+)
+graph_builder.add_conditional_edge(
+    "expand",
+    should_expand,
+    {"forward": forward, "expand": expand, END: END}
+)
+graph = graph_builder.compile()

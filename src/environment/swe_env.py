@@ -863,14 +863,6 @@ class SWEEnv(gym.Env):
             raise RuntimeError(msg)
         return logs
 
-    def get_available_actions(self) -> list[str]:
-        """
-        Returns list of available actions in current environment state
-
-        Currently not in use.
-        """
-        return []
-
     def get_pids(self, all_pids: bool = False) -> list[str]:
         """
         Gets list of processes running inside docker container
