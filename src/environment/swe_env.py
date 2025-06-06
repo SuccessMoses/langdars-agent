@@ -26,8 +26,8 @@ from swebench.harness.test_spec.python import get_environment_yml, get_requireme
 import docker
 import docker.errors
 import docker.models.containers
-from sweagent import REPO_ROOT
-from sweagent.environment.utils import (
+from src import REPO_ROOT
+from src.environment.utils import (
     PROCESS_DONE_MARKER_END,
     PROCESS_DONE_MARKER_START,
     InvalidGithubURL,
@@ -42,8 +42,8 @@ from sweagent.environment.utils import (
     read_with_timeout,
     read_with_timeout_experimental,
 )
-from sweagent.utils.config import keys_config
-from sweagent.utils.log import default_logger, get_logger
+from src.utils.config import keys_config
+from src.utils.log import default_logger, get_logger
 
 LONG_TIMEOUT = float(keys_config.get("SWE_AGENT_ENV_LONG_TIMEOUT", 500))
 AGENT_ACTION_TIMEOUT = float(keys_config.get("SWE_AGENT_ACTION_TIMEOUT", 120))
@@ -474,85 +474,85 @@ class BaseSWEEnv(gym.Env):
             return new_action
         return action
 
-    def step(self, action: str) -> tuple[str | None, int, bool, dict]:
-        """
-        Runs an action proposed by the agent in the environment and returns the corresponding output.
+    # def step(self, action: str) -> tuple[str | None, int, bool, dict]:
+    #     """
+    #     Runs an action proposed by the agent in the environment and returns the corresponding output.
 
-        Args:
-            action: command to run in bash shell
+    #     Args:
+    #         action: command to run in bash shell
 
-        Returns:
-            observation:  output from container
-            reward: value between 0 and 1 quantifying correctness of output + environment state
-            done: whether task is over
-            info: additional information (e.g. debugging information)
-        """
-        info = {}
+    #     Returns:
+    #         observation:  output from container
+    #         reward: value between 0 and 1 quantifying correctness of output + environment state
+    #         done: whether task is over
+    #         info: additional information (e.g. debugging information)
+    #     """
+    #     info = {}
 
-        # action = self.correct_edit_action(action)
-        observation = ""
-        # Handle special actions
-        if action.strip() == "skip":
-            observation = "Skipped"
-            info["exit_status"] = "skipped"
-            return observation, 0, True, info
-        if action in {"exit_context", "exit_cost", "exit_error", "exit_format", "exit_api"}:
-            try:
-                observation = self.communicate(input="submit")
-                submission = self.get_submission(observation)
-                assert submission is not None and submission.strip() != "", AssertionError("No submission found.")
-                self.logger.info(f"Found submission: {submission}")
-                info["exit_status"] = f"submitted ({action})"
-                info["submission"] = submission
-                observation = "Exited (autosubmitted)"
-                self.logger.info("Exiting with autosubmission")
-                return observation, 0, True, info
-            except KeyboardInterrupt:
-                raise
-            except:
-                observation = "Exited"
-                info["exit_status"] = action
-                return observation, 0, True, info
+    #     # action = self.correct_edit_action(action)
+    #     observation = ""
+    #     # Handle special actions
+    #     if action.strip() == "skip":
+    #         observation = "Skipped"
+    #         info["exit_status"] = "skipped"
+    #         return observation, 0, True, info
+    #     if action in {"exit_context", "exit_cost", "exit_error", "exit_format", "exit_api"}:
+    #         try:
+    #             observation = self.communicate(input="submit")
+    #             submission = self.get_submission(observation)
+    #             assert submission is not None and submission.strip() != "", AssertionError("No submission found.")
+    #             self.logger.info(f"Found submission: {submission}")
+    #             info["exit_status"] = f"submitted ({action})"
+    #             info["submission"] = submission
+    #             observation = "Exited (autosubmitted)"
+    #             self.logger.info("Exiting with autosubmission")
+    #             return observation, 0, True, info
+    #         except KeyboardInterrupt:
+    #             raise
+    #         except:
+    #             observation = "Exited"
+    #             info["exit_status"] = action
+    #             return observation, 0, True, info
 
-        # Attempt to run action in container
-        observation = ""
-        try:
-            observation = self.communicate(input=action, timeout_duration=AGENT_ACTION_TIMEOUT, set_last_action=True)
-        except TimeoutError:
-            try:
-                self.interrupt()
-                observation += "\nEXECUTION TIMED OUT. If the command is intended to run in the background or requires more time to complete, please try running it in 'execute_server'."
-            except RuntimeError as e:
-                observation += "\nEXECUTION TIMED OUT AND INTERRUPT FAILED. RESTARTING PROCESS."
-                info["exit_status"] = "early_exit"
-                self.logger.warning(f"Failed to interrupt container: {e}\nRESTARTING PROCESS.")
-                self.reset_container()
-                return observation, 0, True, info
-        except RuntimeError as e:
-            observation += "\nCOMMAND FAILED TO EXECUTE. RESTARTING PROCESS."
-            info["exit_status"] = "early_exit"
-            self.logger.warning(f"Failed to execute command: {e}\nRESTARTING PROCESS.")
-            self.reset_container()
-            return observation, 0, True, info
-        except BrokenPipeError as e:
-            observation += "\nBROKEN PIPE ERROR. RESTARTING PROCESS."
-            info["exit_status"] = "early_exit"
-            self.logger.error(f"Broken pipe error: {e}\nRESTARTING PROCESS.")
-            self.reset_container()
-            return observation, 0, True, info
-        except Exception:
-            observation += "\nEXECUTION FAILED OR COMMAND MALFORMED"
-            self.logger.exception("Unknown exception")
+    #     # Attempt to run action in container
+    #     observation = ""
+    #     try:
+    #         observation = self.communicate(input=action, timeout_duration=AGENT_ACTION_TIMEOUT, set_last_action=True)
+    #     except TimeoutError:
+    #         try:
+    #             self.interrupt()
+    #             observation += "\nEXECUTION TIMED OUT. If the command is intended to run in the background or requires more time to complete, please try running it in 'execute_server'."
+    #         except RuntimeError as e:
+    #             observation += "\nEXECUTION TIMED OUT AND INTERRUPT FAILED. RESTARTING PROCESS."
+    #             info["exit_status"] = "early_exit"
+    #             self.logger.warning(f"Failed to interrupt container: {e}\nRESTARTING PROCESS.")
+    #             self.reset_container()
+    #             return observation, 0, True, info
+    #     except RuntimeError as e:
+    #         observation += "\nCOMMAND FAILED TO EXECUTE. RESTARTING PROCESS."
+    #         info["exit_status"] = "early_exit"
+    #         self.logger.warning(f"Failed to execute command: {e}\nRESTARTING PROCESS.")
+    #         self.reset_container()
+    #         return observation, 0, True, info
+    #     except BrokenPipeError as e:
+    #         observation += "\nBROKEN PIPE ERROR. RESTARTING PROCESS."
+    #         info["exit_status"] = "early_exit"
+    #         self.logger.error(f"Broken pipe error: {e}\nRESTARTING PROCESS.")
+    #         self.reset_container()
+    #         return observation, 0, True, info
+    #     except Exception:
+    #         observation += "\nEXECUTION FAILED OR COMMAND MALFORMED"
+    #         self.logger.exception("Unknown exception")
 
-        # Record submission and end episode if `submit` keyword found
-        submission = self.get_submission(observation)
-        if submission is not None:
-            self.logger.info(f"Found submission: {submission}")
-            info["exit_status"] = "submitted"
-            info["submission"] = submission if submission.strip() != "" else None
-            observation = submission if submission.strip() != "" else None
-            return observation, 0, True, info
-        return observation, 0, False, info
+    #     # Record submission and end episode if `submit` keyword found
+    #     submission = self.get_submission(observation)
+    #     if submission is not None:
+    #         self.logger.info(f"Found submission: {submission}")
+    #         info["exit_status"] = "submitted"
+    #         info["submission"] = submission if submission.strip() != "" else None
+    #         observation = submission if submission.strip() != "" else None
+    #         return observation, 0, True, info
+    #     return observation, 0, False, info
 
     def close(self) -> None:
         """
@@ -880,21 +880,21 @@ class BaseSWEEnv(gym.Env):
             pids = [x for x in pids if x[1] != "ps" and x[0] not in self.parent_pids]
         return pids
 
-    def get_submission(self, output: str) -> str | None:
-        """
-        Function for extracting diff patch submission at the end of an episode.
+    # def get_submission(self, output: str) -> str | None:
+    #     """
+    #     Function for extracting diff patch submission at the end of an episode.
 
-        Args:
-            output: `submit` observation
+    #     Args:
+    #         output: `submit` observation
 
-        Returns:
-            submission: diff patch submission
-        """
-        pattern = r"\<\<SUBMISSION\|\|(.*)\|\|SUBMISSION\>\>"
-        match = re.search(pattern, output, re.DOTALL)
-        if match is None:
-            return None
-        return match.group(1)
+    #     Returns:
+    #         submission: diff patch submission
+    #     """
+    #     pattern = r"\<\<SUBMISSION\|\|(.*)\|\|SUBMISSION\>\>"
+    #     match = re.search(pattern, output, re.DOTALL)
+    #     if match is None:
+    #         return None
+    #     return match.group(1)
 
     def run_shell_script(self, script_path: Path, *, location: str) -> None:
         """Run custom script supplied by user at `script_path`
@@ -1156,48 +1156,48 @@ class BaseSWEEnv(gym.Env):
             msg = "Failed to interrupt container"
             raise RuntimeError(msg)
 
-    def open_pr(self, *, trajectory, _dry_run: bool = False) -> None:
-        """Create PR to repository
+    # def open_pr(self, *, trajectory, _dry_run: bool = False) -> None:
+    #     """Create PR to repository
 
-        Args:
-            trajectory: Trajectory of actions taken by the agent
-            _dry_run: Whether to actually push anything or just simulate it
-        """
-        self.logger.info("Opening PR")
-        # Adding random string suffix to avoid name conflicts if we had a previously failed run
-        issue_url = self.args.data_path
-        try:
-            issue = get_gh_issue_data(issue_url, token=self._github_token)
-        except InvalidGithubURL as e:
-            msg = "Data path must be a github issue URL if --open_pr is set."
-            raise ValueError(msg) from e
-        branch_name = f"swe-agent-fix-#{issue.number}-" + str(random.random())[2:10]
+    #     Args:
+    #         trajectory: Trajectory of actions taken by the agent
+    #         _dry_run: Whether to actually push anything or just simulate it
+    #     """
+    #     self.logger.info("Opening PR")
+    #     # Adding random string suffix to avoid name conflicts if we had a previously failed run
+    #     issue_url = self.args.data_path
+    #     try:
+    #         issue = get_gh_issue_data(issue_url, token=self._github_token)
+    #     except InvalidGithubURL as e:
+    #         msg = "Data path must be a github issue URL if --open_pr is set."
+    #         raise ValueError(msg) from e
+    #     branch_name = f"swe-agent-fix-#{issue.number}-" + str(random.random())[2:10]
 
-        self.communicate_with_handling(
-            input="rm -f model.patch",
-            error_msg="Failed to remove model patch",
-            timeout_duration=60,
-        )
-        self.communicate_with_handling(
-            input=f"git checkout -b {branch_name}",
-            error_msg="Failed to switch to new branch",
-            timeout_duration=60,
-        )
-        self.communicate_with_handling(
-            input="git add .",
-            error_msg="Failed to add commits",
-            timeout_duration=60,
-        )
-        dry_run_flag = "--allow-empty" if _dry_run else ""
-        commit_msg = [
-            shlex.quote("Fix: {issue.title}"),
-            shlex.quote("Closes #{issue.number}"),
-        ]
-        self.communicate_with_handling(
-            input=f"git commit -m {commit_msg[0]} -m  {commit_msg[1]} {dry_run_flag}",
-            error_msg="Failed to commit changes",
-            timeout_duration=60,
-        )
+    #     self.communicate_with_handling(
+    #         input="rm -f model.patch",
+    #         error_msg="Failed to remove model patch",
+    #         timeout_duration=60,
+    #     )
+    #     self.communicate_with_handling(
+    #         input=f"git checkout -b {branch_name}",
+    #         error_msg="Failed to switch to new branch",
+    #         timeout_duration=60,
+    #     )
+    #     self.communicate_with_handling(
+    #         input="git add .",
+    #         error_msg="Failed to add commits",
+    #         timeout_duration=60,
+    #     )
+    #     dry_run_flag = "--allow-empty" if _dry_run else ""
+    #     commit_msg = [
+    #         shlex.quote("Fix: {issue.title}"),
+    #         shlex.quote("Closes #{issue.number}"),
+    #     ]
+    #     self.communicate_with_handling(
+    #         input=f"git commit -m {commit_msg[0]} -m  {commit_msg[1]} {dry_run_flag}",
+    #         error_msg="Failed to commit changes",
+    #         timeout_duration=60,
+    #     )
 
     #     owner, repo, _ = parse_gh_issue_url(issue_url)
     #     # If `--repo_path` was specified with a different github URL, then the record will contain
