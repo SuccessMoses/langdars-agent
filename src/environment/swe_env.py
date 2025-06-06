@@ -26,8 +26,8 @@ from swebench.harness.test_spec.python import get_environment_yml, get_requireme
 import docker
 import docker.errors
 import docker.models.containers
-from src import REPO_ROOT
-from src.environment.utils import (
+from .. import REPO_ROOT
+from ..environment.utils import (
     PROCESS_DONE_MARKER_END,
     PROCESS_DONE_MARKER_START,
     InvalidGithubURL,
@@ -42,8 +42,8 @@ from src.environment.utils import (
     read_with_timeout,
     read_with_timeout_experimental,
 )
-from src.utils.config import keys_config
-from src.utils.log import default_logger, get_logger
+from ..utils.config import keys_config
+from ..utils.log import default_logger, get_logger
 
 LONG_TIMEOUT = float(keys_config.get("SWE_AGENT_ENV_LONG_TIMEOUT", 500))
 AGENT_ACTION_TIMEOUT = float(keys_config.get("SWE_AGENT_ACTION_TIMEOUT", 120))
