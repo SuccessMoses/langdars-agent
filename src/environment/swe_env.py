@@ -132,7 +132,7 @@ class EnvHook:
         """Called when the environment is closed"""
 
 
-class SWEEnv(gym.Env):
+class BaseSWEEnv(gym.Env):
     """Gym environment for SWE-bench. This class should handle all communication with the docker container."""
 
     name = "swe_main"
@@ -347,16 +347,16 @@ class SWEEnv(gym.Env):
 
         # Move construct_codegraph.py to the container
         subprocess.run(
-            f"docker cp {os.getcwd()}/sweagent/environment/utils_codegraph.py {self.container_name}:/root/utils_codegraph.py",
+            f"docker cp {os.getcwd()}/src/environment/utils_codegraph.py {self.container_name}:/root/utils_codegraph.py",
             shell=True,
         )
         subprocess.run(
-            f"docker cp {os.getcwd()}/sweagent/environment/construct_graph.py {self.container_name}:/root/construct_graph.py",
+            f"docker cp {os.getcwd()}/src/environment/construct_graph.py {self.container_name}:/root/construct_graph.py",
             shell=True,
         )
         # Move graph retrieval script to the container
         subprocess.run(
-            f"docker cp {os.getcwd()}/sweagent/environment/retrieve_graph.py {self.container_name}:/root/retrieve_graph.py",
+            f"docker cp {os.getcwd()}/src/environment/retrieve_graph.py {self.container_name}:/root/retrieve_graph.py",
             shell=True,
         )
 
