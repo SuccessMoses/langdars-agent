@@ -132,7 +132,7 @@ class EnvHook:
         """Called when the environment is closed"""
 
 
-class BaseSWEEnv(gym.Env):
+class SWEEnv(gym.Env):
     """Gym environment for SWE-bench. This class should handle all communication with the docker container."""
 
     name = "swe_main"
@@ -460,100 +460,227 @@ class BaseSWEEnv(gym.Env):
         )
         os.remove(path_to_patch)
 
-    def close(self) -> None:
-        for hook in self.hooks:
-            hook.on_close()
+    def correct_edit_action(self, action):
+        pattern = r'edit\s+(\d+):(\d+)(?:\n|$)(.*?)(?:(?:\nend_of_edit)|$)'
+        match = re.search(pattern, action, re.DOTALL)
+        if match:
+            start_line = match.group(1)
+            end_line = match.group(2)
+            replacement_text = match.group(3).strip()
+            replacement_text = re.sub(r'\s*end_of_edit\s*$', '', replacement_text, flags=re.IGNORECASE)
+            if not replacement_text:
+                replacement_text = ""
+            new_action = f'edit {start_line}:{end_line} << end_of_edit\n{replacement_text}\nend_of_edit\n'
+            return new_action
+        return action
 
-    def run_bash_command(self, command: str, timeout_duration: int | float = 120) -> tuple[str, int | None]:
+    def step(self, action: str) -> tuple[str | None, int, bool, dict]:
         """
-        Executes a bash command (single or multi-line) in the environment's container.
-
-        This method consolidates the core logic for sending a command to the container,
-        handling timeouts, capturing output, and managing common execution errors
-        like BrokenPipeError or general RuntimeErrors.
+        Runs an action proposed by the agent in the environment and returns the corresponding output.
 
         Args:
-            command: The bash command string to execute. Can be single or multi-line.
-            timeout_duration: The maximum time (in seconds) to wait for the command to complete.
+            action: command to run in bash shell
 
         Returns:
-            A tuple containing:
-                - str: The output received from the command's execution in the container.
-                - int | None: The return code of the executed command, or None if it couldn't be determined.
+            observation:  output from container
+            reward: value between 0 and 1 quantifying correctness of output + environment state
+            done: whether task is over
+            info: additional information (e.g. debugging information)
         """
-        self.logger.log(logging.TRACE, "Executing bash command:\n%s", command)
+        info = {}
 
-        output = ""
-        return_code = None
-
-        try:
-            # Add a newline if not already present, to ensure execution
-            cmd_to_send = command if command.endswith("\n") else command + "\n"
-
-            # Use the end-marker approach for robustness in getting exit code
-            # This is similar to _communicate_experimental
-            command_suffix = (
-                f'EXITSTATUS="$?"; sleep 0.01; echo {PROCESS_DONE_MARKER_START}$EXITSTATUS{PROCESS_DONE_MARKER_END}\n'
-            )
-            final_cmd = cmd_to_send + command_suffix
-
-            os.write(self.container.stdin.fileno(), final_cmd.encode())
-            time.sleep(0.03) # A small sleep to ensure write propagates
-            self.container.stdin.flush()
-
-            buffer, exit_code_str = read_with_timeout_experimental(self.container, timeout_duration)
-            output = buffer
-
-            if exit_code_str == "$EXITSTATUS":
-                # Fallback for when the exit code isn't properly captured
-                output = (
-                    "Unknown error occurred when running the command. Please double check syntax "
-                    "and that you're not running an interactive command."
-                )
-                self.logger.warning("Couldn't get real exit code. Setting it to 999 for this command.")
-                return_code = 999
-            elif exit_code_str and exit_code_str.isdigit():
-                return_code = int(exit_code_str)
-            else:
-                # This should ideally not happen with the end-marker, but for safety
-                self.logger.error(f"Failed to parse exit code. Raw output:\n---\n{output}\n---")
-                return_code = -1 # Indicate an unknown or unparseable exit code
-
-        except TimeoutError:
-            self.logger.warning("Command execution timed out. Attempting to interrupt container processes.")
-            output += "\nEXECUTION TIMED OUT. Attempted to interrupt running processes."
+        # action = self.correct_edit_action(action)
+        observation = ""
+        # Handle special actions
+        if action.strip() == "skip":
+            observation = "Skipped"
+            info["exit_status"] = "skipped"
+            return observation, 0, True, info
+        if action in {"exit_context", "exit_cost", "exit_error", "exit_format", "exit_api"}:
             try:
-                self.interrupt() # Use the existing interrupt mechanism
-                output += "\nInterrupt signal sent successfully."
-            except RuntimeError as e:
-                output += f"\nINTERRUPT FAILED: {e}. Consider restarting the container."
-                self.logger.error(f"Failed to interrupt container after timeout: {e}")
-            return_code = -2 # Custom code for timeout with attempted interrupt
-        except BrokenPipeError:
-            self.logger.error("Broken pipe error during command execution. Container communication might be compromised.")
-            output += "\nBROKEN PIPE ERROR. Container communication issue detected."
-            return_code = -3 # Custom code for broken pipe
-        except Exception as e:
-            self.logger.exception(f"An unexpected error occurred during command execution: {e}")
-            output += f"\nUNEXPECTED EXECUTION ERROR: {e}"
-            return_code = -4 # Custom code for general unexpected error
+                observation = self.communicate(input="submit")
+                submission = self.get_submission(observation)
+                assert submission is not None and submission.strip() != "", AssertionError("No submission found.")
+                self.logger.info(f"Found submission: {submission}")
+                info["exit_status"] = f"submitted ({action})"
+                info["submission"] = submission
+                observation = "Exited (autosubmitted)"
+                self.logger.info("Exiting with autosubmission")
+                return observation, 0, True, info
+            except KeyboardInterrupt:
+                raise
+            except:
+                observation = "Exited"
+                info["exit_status"] = action
+                return observation, 0, True, info
 
-        self.logger.log(logging.TRACE, "Command output:\n%s\nReturn Code: %s", output, return_code)
-        return output, return_code
+        # Attempt to run action in container
+        observation = ""
+        try:
+            observation = self.communicate(input=action, timeout_duration=AGENT_ACTION_TIMEOUT, set_last_action=True)
+        except TimeoutError:
+            try:
+                self.interrupt()
+                observation += "\nEXECUTION TIMED OUT. If the command is intended to run in the background or requires more time to complete, please try running it in 'execute_server'."
+            except RuntimeError as e:
+                observation += "\nEXECUTION TIMED OUT AND INTERRUPT FAILED. RESTARTING PROCESS."
+                info["exit_status"] = "early_exit"
+                self.logger.warning(f"Failed to interrupt container: {e}\nRESTARTING PROCESS.")
+                self.reset_container()
+                return observation, 0, True, info
+        except RuntimeError as e:
+            observation += "\nCOMMAND FAILED TO EXECUTE. RESTARTING PROCESS."
+            info["exit_status"] = "early_exit"
+            self.logger.warning(f"Failed to execute command: {e}\nRESTARTING PROCESS.")
+            self.reset_container()
+            return observation, 0, True, info
+        except BrokenPipeError as e:
+            observation += "\nBROKEN PIPE ERROR. RESTARTING PROCESS."
+            info["exit_status"] = "early_exit"
+            self.logger.error(f"Broken pipe error: {e}\nRESTARTING PROCESS.")
+            self.reset_container()
+            return observation, 0, True, info
+        except Exception:
+            observation += "\nEXECUTION FAILED OR COMMAND MALFORMED"
+            self.logger.exception("Unknown exception")
+
+        # Record submission and end episode if `submit` keyword found
+        submission = self.get_submission(observation)
+        if submission is not None:
+            self.logger.info(f"Found submission: {submission}")
+            info["exit_status"] = "submitted"
+            info["submission"] = submission if submission.strip() != "" else None
+            observation = submission if submission.strip() != "" else None
+            return observation, 0, True, info
+        return observation, 0, False, info
+
+    def close(self) -> None:
+        """
+        Handle environment shutdown
+        """
+        self.logger.info("Beginning environment shutdown...")
+        try:
+            self.communicate(input="exit")
+        except KeyboardInterrupt:
+            raise
+        except:
+            self.logger.warning("Errors when exiting container", exc_info=True)
+        assert self.container is not None  # mypy
+        self.container.terminate()
+        if self.container_obj is None:
+            pass
+        elif self.persistent:
+            # stopping is Podman specific, but doesn't hurt to include
+            # https://stackoverflow.com/a/32428199/
+            # Want to avoid https://github.com/princeton-nlp/SWE-agent/issues/496
+            # Note that container_obj.status might not be updated throughout the container
+            # lifecycle, so let's get the container_obj again
+            assert self.container_name
+            try:
+                self.container_obj = docker.from_env().containers.get(self.container_name)
+            except Exception as e:
+                self.logger.warning(f"Failed to get fresh container object: {e}", exc_info=True)
+            if self.container_obj.status not in {"paused", "exited", "dead", "stopping"}:
+                try:
+                    self.container_obj.pause()
+                except Exception:
+                    self.logger.warning("Failed to pause container.", exc_info=True)
+                except KeyboardInterrupt:
+                    raise
+                else:
+                    self.logger.info("Agent container paused")
+            else:
+                self.logger.info(f"Agent container status: {self.container_obj.status}")
+        else:
+            try:
+                self.container_obj.remove(force=True)
+            except KeyboardInterrupt:
+                raise
+            except docker.errors.NotFound:
+                # We already tried to exit the container, so it's actually good if
+                # it's not found
+                pass
+            except Exception:
+                self.logger.warning("Failed to remove container", exc_info=True)
+            else:
+                self.logger.info("Agent container stopped")
+        for hook in self.hooks:
+            hook.on_close()
 
     # MARK: Helper functions #
 
     def _reset_container(self) -> None:
+        if self.container is not None:
+            try:
+                self.container.terminate()
+            except KeyboardInterrupt:
+                raise
+            except:
+                self.logger.warning("Failed to terminate container", exc_info=True)
+            else:
+                self.logger.debug("Terminated container")
+        self._init_container()
         self._init_scripts()
 
     def reset_container(self) -> None:
+        self.close()
+        self.container = None
+        self.container_obj = None
         self._reset_container()
 
-    # @staticmethod
-    # def _get_container_name(image_name: str) -> str:
-    #     return f"{image_name_sanitized}-{hash_object.hexdigest()[:10]}"
+    @staticmethod
+    def _get_container_name(image_name: str) -> str:
+        """Return name of container"""
+        process_id = str(os.getpid())
+        current_time = str(datetime.datetime.now())
+        unique_string = current_time + process_id
+        hash_object = hashlib.sha256(unique_string.encode())
+        image_name_sanitized = image_name.replace("/", "-")
+        image_name_sanitized = image_name_sanitized.replace(":", "-")
+        return f"{image_name_sanitized}-{hash_object.hexdigest()[:10]}"
 
     def _init_container(self, cached_image: str | None = None) -> None:
+        """
+        Handles container initialization. Defines container name and creates it.
+        If cached_image is provided, it will use that image name instead of the default.
+        """
+        image_name = self.image_name
+        if cached_image is not None:
+            image_name = cached_image
+            self.logger.info(f"Using cached image: {image_name}")
+        if self.persistent:
+            assert self.container_name is not None
+        else:
+            # Make sure that we get a new container name just in case removing didn't work.
+            # Might be a fix for https://github.com/princeton-nlp/SWE-agent/issues/451
+            self.container_name = self._get_container_name(image_name)
+        volume_mount = f"{self.args.persistent_volume}:/root/persistent_data" if self.args.persistent_volume else None
+        self.container, self.parent_pids = get_container(self.container_name, image_name, persistent=self.persistent, volume_mount=volume_mount)
+        try:
+            client = docker.from_env(timeout=600)
+        except docker.errors.DockerException as e:
+            if "Error while fetching server API version" in str(e):
+                msg = "Docker is not running. Please start Docker and try again."
+            else:
+                msg = "Unknown docker exception occurred. Are you sure docker is running?"
+            raise RuntimeError(msg) from e
+        t0 = time.time()
+        self.container_obj = None
+        while time.time() - t0 < 60:
+            try:
+                self.container_obj = client.containers.get(self.container_name)
+            except docker.errors.NotFound:
+                self.logger.debug("Couldn't find container. Let's wait and retry.")
+                time.sleep(1)
+            else:
+                break
+        else:
+            print(f"{self.persistent=}")
+            available_containers = client.containers.list(all=True)
+            available_containers_info = json.dumps([str(c.attrs) for c in available_containers], indent=2)
+            print(available_containers_info)
+            msg = "Failed to get container object."
+            raise RuntimeError(msg)
         self.logger.info("🌱 Environment Initialized")
 
     def _init_scripts(self):
@@ -576,6 +703,165 @@ class BaseSWEEnv(gym.Env):
             "export PATH=$PATH:/root/commands",
             error_msg="Failed to add commands directory to PATH",
         )
+
+    def _communicate_experimental(
+        self,
+        input: str,
+        timeout_duration: int | float = 25,
+    ) -> str:
+        """Experimental version of `_communicate`"""
+        assert self.container is not None
+        # Sleep to ensure that the exit code is in the last line
+        # See https://github.com/princeton-nlp/SWE-agent/issues/595
+        command_suffix = (
+            f'EXITSTATUS="$?"; sleep 0.01; echo {PROCESS_DONE_MARKER_START}$EXITSTATUS{PROCESS_DONE_MARKER_END}\n'
+        )
+        try:
+            self.returncode = None
+            cmd = input if input.endswith("\n") else input + "\n"
+            cmd += command_suffix
+            os.write(self.container.stdin.fileno(), cmd.encode())
+            time.sleep(0.03)
+            self.container.stdin.flush()
+        except BrokenPipeError:
+            traceback.print_exc()
+            self.logger.error("Failed to communicate with container. Check docker logs for more information.")
+            msg = "Failed to communicate with container"
+            raise RuntimeError(msg)
+
+        try:
+            buffer, exit_code = read_with_timeout_experimental(self.container, timeout_duration)
+        except Exception:
+            msg = f"Read with timeout failed on input:\n---\n{input}\n---"
+            self.logger.error(msg)
+            raise
+        if exit_code == "$EXITSTATUS":
+            # this sometimes happens if the command badly fails
+            # for example if you just try to run python with no arguments
+            # in this case, the error message is usually also garbage, so let's set
+            # something new.
+            # See https://github.com/princeton-nlp/SWE-agent/issues/630
+            buffer = (
+                "Unkknown error occurred when running the command. Please double check syntax "
+                "and that you're not running an interactive command."
+            )
+            self.logger.warning("Couldn't get real exit code. Setting it to 999")
+            exit_code = 999
+        elif not exit_code.isdigit():
+            msg = f"Failed to get exit code. Output:\n---\n{buffer}\n---"
+            raise RuntimeError(msg)
+        self.returncode = int(exit_code)
+        return buffer
+
+    def _communicate(
+        self,
+        input: str,
+        timeout_duration: int | float = 25,
+    ) -> str:
+        """Runs command in container and returns output
+
+        Args:
+            input: command to run in container
+            timeout_duration: duration to wait for output
+        """
+        assert self.container is not None
+        communicate_method = keys_config.get(
+            "SWE_AGENT_COMMUNICATE_METHOD", default="end-marker", choices=["end-marker", "processes"]
+        )
+        if communicate_method == "end-marker":
+            return self._communicate_experimental(input, timeout_duration)
+        try:
+            self.returncode = None
+            cmd = input if input.endswith("\n") else input + "\n"
+            os.write(self.container.stdin.fileno(), cmd.encode())
+            time.sleep(0.1)
+            self.container.stdin.flush()
+        except BrokenPipeError:
+            traceback.print_exc()
+            self.logger.error("Failed to communicate with container. Check docker logs for more information.")
+            msg = "Failed to communicate with container"
+            raise RuntimeError(msg)
+        try:
+            buffer = read_with_timeout(self.container, self.get_pids, timeout_duration)
+            self.container.stdin.write("echo $?\n")
+            time.sleep(0.1)
+            self.container.stdin.flush()
+            exit_code = read_with_timeout(self.container, self.get_pids, 5).strip()
+        except Exception as e:
+            self.logger.error(f"Read with timeout failed on input:\n---\n{input}\n---")
+            raise e
+        if not exit_code.isdigit():
+            msg = f"Failed to get exit code. Output:\n---\n{buffer}\n---"
+            raise RuntimeError(msg)
+        self.returncode = int(exit_code)
+        return buffer
+
+    def _check_syntax(self, input: str) -> tuple[str, bool]:
+        """
+        Check syntax of command.
+
+        Returns:
+            output: Output of the command
+            success: whether the exit code was 0
+        """
+        output = self._communicate(f"/bin/bash -n <<'EOF'\n{input}\nEOF\n")
+        return output, self.returncode == 0
+
+    def communicate(self, input: str, timeout_duration: int | float = 25, *, set_last_action: bool = False) -> str:
+        """
+        Sends input to container and returns output
+
+        Args:
+            input: input to send to container
+            timeout_duration: duration to wait for output
+            set_last_action: whether to set the LAST_ACTION environment variable
+
+        Returns:
+            output: output from container
+        """
+        if input.strip() != "exit":
+            self.logger.log(logging.TRACE, "Input:\n%s", input)  # type: ignore
+            output, valid = self._check_syntax(input)
+            if not valid:
+                return output  # shows syntax errors
+            output = self._communicate(
+                input,
+                timeout_duration=timeout_duration,
+            )
+            self.logger.log(logging.TRACE, "Output:\n%s", output)  # type: ignore
+            self.communicate_output = output
+            if set_last_action:
+                # Cannot merge this with last command, because of multiline command
+                # handling.
+                last_action_string = shlex.quote(input.strip())
+                input = f"export LAST_ACTION={last_action_string}"
+                self._communicate(input, timeout_duration=60)
+            return output
+        else:
+            self.container.terminate()
+            self.returncode = 0
+            self.communicate_output = ""
+            return ""
+
+    def communicate_with_handling(self, input: str, error_msg: str, timeout_duration: int | float = 25) -> str:
+        """
+        Wrapper for communicate function that raises error if return code is non-zero
+
+        Args:
+            input: input to send to container
+            error_msg: error message to raise if return code is non-zero
+            timeout_duration: duration to wait for output
+
+        Returns:
+            output: output from container
+        """
+        logs = self.communicate(input, timeout_duration=timeout_duration)
+        if self.returncode != 0:
+            self.logger.error(f"{error_msg}: {logs}")
+            self.close()
+            msg = f"{error_msg}: {logs}"
+            raise RuntimeError(msg)
+        return logs
 
     def get_pids(self, all_pids: bool = False) -> list[str]:
         """
@@ -870,101 +1156,101 @@ class BaseSWEEnv(gym.Env):
             msg = "Failed to interrupt container"
             raise RuntimeError(msg)
 
-    # def open_pr(self, *, trajectory, _dry_run: bool = False) -> None:
-    #     """Create PR to repository
+    def open_pr(self, *, trajectory, _dry_run: bool = False) -> None:
+        """Create PR to repository
 
-    #     Args:
-    #         trajectory: Trajectory of actions taken by the agent
-    #         _dry_run: Whether to actually push anything or just simulate it
-    #     """
-    #     self.logger.info("Opening PR")
-    #     # Adding random string suffix to avoid name conflicts if we had a previously failed run
-    #     issue_url = self.args.data_path
-    #     try:
-    #         issue = get_gh_issue_data(issue_url, token=self._github_token)
-    #     except InvalidGithubURL as e:
-    #         msg = "Data path must be a github issue URL if --open_pr is set."
-    #         raise ValueError(msg) from e
-    #     branch_name = f"swe-agent-fix-#{issue.number}-" + str(random.random())[2:10]
+        Args:
+            trajectory: Trajectory of actions taken by the agent
+            _dry_run: Whether to actually push anything or just simulate it
+        """
+        self.logger.info("Opening PR")
+        # Adding random string suffix to avoid name conflicts if we had a previously failed run
+        issue_url = self.args.data_path
+        try:
+            issue = get_gh_issue_data(issue_url, token=self._github_token)
+        except InvalidGithubURL as e:
+            msg = "Data path must be a github issue URL if --open_pr is set."
+            raise ValueError(msg) from e
+        branch_name = f"swe-agent-fix-#{issue.number}-" + str(random.random())[2:10]
 
-    #     self.communicate_with_handling(
-    #         input="rm -f model.patch",
-    #         error_msg="Failed to remove model patch",
-    #         timeout_duration=60,
-    #     )
-    #     self.communicate_with_handling(
-    #         input=f"git checkout -b {branch_name}",
-    #         error_msg="Failed to switch to new branch",
-    #         timeout_duration=60,
-    #     )
-    #     self.communicate_with_handling(
-    #         input="git add .",
-    #         error_msg="Failed to add commits",
-    #         timeout_duration=60,
-    #     )
-    #     dry_run_flag = "--allow-empty" if _dry_run else ""
-    #     commit_msg = [
-    #         shlex.quote("Fix: {issue.title}"),
-    #         shlex.quote("Closes #{issue.number}"),
-    #     ]
-    #     self.communicate_with_handling(
-    #         input=f"git commit -m {commit_msg[0]} -m  {commit_msg[1]} {dry_run_flag}",
-    #         error_msg="Failed to commit changes",
-    #         timeout_duration=60,
-    #     )
+        self.communicate_with_handling(
+            input="rm -f model.patch",
+            error_msg="Failed to remove model patch",
+            timeout_duration=60,
+        )
+        self.communicate_with_handling(
+            input=f"git checkout -b {branch_name}",
+            error_msg="Failed to switch to new branch",
+            timeout_duration=60,
+        )
+        self.communicate_with_handling(
+            input="git add .",
+            error_msg="Failed to add commits",
+            timeout_duration=60,
+        )
+        dry_run_flag = "--allow-empty" if _dry_run else ""
+        commit_msg = [
+            shlex.quote("Fix: {issue.title}"),
+            shlex.quote("Closes #{issue.number}"),
+        ]
+        self.communicate_with_handling(
+            input=f"git commit -m {commit_msg[0]} -m  {commit_msg[1]} {dry_run_flag}",
+            error_msg="Failed to commit changes",
+            timeout_duration=60,
+        )
 
-    #     owner, repo, _ = parse_gh_issue_url(issue_url)
-    #     # If `--repo_path` was specified with a different github URL, then the record will contain
-    #     # the forking user
-    #     assert self.record is not None
-    #     if self.record["repo_type"] != "github":
-    #         # We already validated that `--data_path` is a github issue URL
-    #         # so this is the only case where we can reach here
-    #         msg = "--repo_path must point to a github URL if --open_pr is set"
-    #         raise ValueError(msg)
-    #     forker, _ = self.record["repo"].split("/")
-    #     head = branch_name
-    #     remote = "origin"
-    #     if forker != owner:
-    #         head = f"{forker}:{branch_name}"
-    #         token_prefix = ""
-    #         if self._github_token:
-    #             token_prefix = f"{self._github_token}@"
-    #         fork_url = f"https://{token_prefix}github.com/{forker}/{repo}.git"
-    #         self.logger.debug(f"Using fork: {fork_url}")
-    #         self.communicate_with_handling(
-    #             input=f"git remote add fork {fork_url}",
-    #             error_msg="Failed to create new git remote",
-    #             timeout_duration=60,
-    #         )
-    #         remote = "fork"
-    #     dry_run_prefix = "echo " if _dry_run else ""
-    #     self.communicate_with_handling(
-    #         input=f"{dry_run_prefix} git push {remote} {branch_name}",
-    #         error_msg=(
-    #             "Failed to push branch to remote. Please check your token and permissions. "
-    #             "You might want to push to a fork with the push_gh_repo_url option."
-    #         ),
-    #         timeout_duration=60,
-    #     )
-    #     body = (
-    #         f"This is a PR opened by AI tool [SWE Agent](https://github.com/princeton-nlp/SWE-agent/) "
-    #         f"to close [#{issue.number}]({issue_url}) ({issue.title}).\n\nCloses #{issue.number}."
-    #     )
-    #     body += "\n\n" + format_trajectory_markdown(trajectory)
-    #     api = GhApi(token=self._github_token)
-    #     if not _dry_run:
-    #         pr_info = api.pulls.create(
-    #             owner=owner,
-    #             repo=repo,
-    #             title=f"SWE-agent[bot] PR to fix: {issue.title}",
-    #             head=head,
-    #             base="main",
-    #             body=body,
-    #             draft=True,
-    #         )
-    #         self.logger.info(
-    #             f"🎉 PR created as a draft at {pr_info.html_url}. Please review it carefully, push "
-    #             "any required changes onto the branch and then click "
-    #             "'Ready for Review' to bring it to the attention of the maintainers.",
-    #         )
+        owner, repo, _ = parse_gh_issue_url(issue_url)
+        # If `--repo_path` was specified with a different github URL, then the record will contain
+        # the forking user
+        assert self.record is not None
+        if self.record["repo_type"] != "github":
+            # We already validated that `--data_path` is a github issue URL
+            # so this is the only case where we can reach here
+            msg = "--repo_path must point to a github URL if --open_pr is set"
+            raise ValueError(msg)
+        forker, _ = self.record["repo"].split("/")
+        head = branch_name
+        remote = "origin"
+        if forker != owner:
+            head = f"{forker}:{branch_name}"
+            token_prefix = ""
+            if self._github_token:
+                token_prefix = f"{self._github_token}@"
+            fork_url = f"https://{token_prefix}github.com/{forker}/{repo}.git"
+            self.logger.debug(f"Using fork: {fork_url}")
+            self.communicate_with_handling(
+                input=f"git remote add fork {fork_url}",
+                error_msg="Failed to create new git remote",
+                timeout_duration=60,
+            )
+            remote = "fork"
+        dry_run_prefix = "echo " if _dry_run else ""
+        self.communicate_with_handling(
+            input=f"{dry_run_prefix} git push {remote} {branch_name}",
+            error_msg=(
+                "Failed to push branch to remote. Please check your token and permissions. "
+                "You might want to push to a fork with the push_gh_repo_url option."
+            ),
+            timeout_duration=60,
+        )
+        body = (
+            f"This is a PR opened by AI tool [SWE Agent](https://github.com/princeton-nlp/SWE-agent/) "
+            f"to close [#{issue.number}]({issue_url}) ({issue.title}).\n\nCloses #{issue.number}."
+        )
+        body += "\n\n" + format_trajectory_markdown(trajectory)
+        api = GhApi(token=self._github_token)
+        if not _dry_run:
+            pr_info = api.pulls.create(
+                owner=owner,
+                repo=repo,
+                title=f"SWE-agent[bot] PR to fix: {issue.title}",
+                head=head,
+                base="main",
+                body=body,
+                draft=True,
+            )
+            self.logger.info(
+                f"🎉 PR created as a draft at {pr_info.html_url}. Please review it carefully, push "
+                "any required changes onto the branch and then click "
+                "'Ready for Review' to bring it to the attention of the maintainers.",
+            )
