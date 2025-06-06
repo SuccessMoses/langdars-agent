@@ -5,8 +5,8 @@ from pathlib import Path
 from typing import Any
 
 import config as config_file
-from sweagent import REPO_ROOT
-from sweagent.utils.log import get_logger
+from .. import REPO_ROOT
+from .log import get_logger
 
 logger = get_logger("config")
 
