@@ -36,7 +36,7 @@ class Config:
         """
         if keys_cfg_path is None:
             # Defer import to avoid circular import
-            from sweagent import PACKAGE_DIR
+            from .. import PACKAGE_DIR
 
             keys_cfg_path = PACKAGE_DIR.parent / "keys.cfg"
         self._keys_cfg = None
