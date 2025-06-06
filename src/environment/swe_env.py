@@ -1199,63 +1199,6 @@ class SWEEnv(gym.Env):
             timeout_duration=60,
         )
 
-<<<<<<< HEAD
-        owner, repo, _ = parse_gh_issue_url(issue_url)
-        # If `--repo_path` was specified with a different github URL, then the record will contain
-        # the forking user
-        assert self.record is not None
-        if self.record["repo_type"] != "github":
-            # We already validated that `--data_path` is a github issue URL
-            # so this is the only case where we can reach here
-            msg = "--repo_path must point to a github URL if --open_pr is set"
-            raise ValueError(msg)
-        forker, _ = self.record["repo"].split("/")
-        head = branch_name
-        remote = "origin"
-        if forker != owner:
-            head = f"{forker}:{branch_name}"
-            token_prefix = ""
-            if self._github_token:
-                token_prefix = f"{self._github_token}@"
-            fork_url = f"https://{token_prefix}github.com/{forker}/{repo}.git"
-            self.logger.debug(f"Using fork: {fork_url}")
-            self.communicate_with_handling(
-                input=f"git remote add fork {fork_url}",
-                error_msg="Failed to create new git remote",
-                timeout_duration=60,
-            )
-            remote = "fork"
-        dry_run_prefix = "echo " if _dry_run else ""
-        self.communicate_with_handling(
-            input=f"{dry_run_prefix} git push {remote} {branch_name}",
-            error_msg=(
-                "Failed to push branch to remote. Please check your token and permissions. "
-                "You might want to push to a fork with the push_gh_repo_url option."
-            ),
-            timeout_duration=60,
-        )
-        body = (
-            f"This is a PR opened by AI tool [SWE Agent](https://github.com/princeton-nlp/SWE-agent/) "
-            f"to close [#{issue.number}]({issue_url}) ({issue.title}).\n\nCloses #{issue.number}."
-        )
-        body += "\n\n" + format_trajectory_markdown(trajectory)
-        api = GhApi(token=self._github_token)
-        if not _dry_run:
-            pr_info = api.pulls.create(
-                owner=owner,
-                repo=repo,
-                title=f"SWE-agent[bot] PR to fix: {issue.title}",
-                head=head,
-                base="main",
-                body=body,
-                draft=True,
-            )
-            self.logger.info(
-                f"🎉 PR created as a draft at {pr_info.html_url}. Please review it carefully, push "
-                "any required changes onto the branch and then click "
-                "'Ready for Review' to bring it to the attention of the maintainers.",
-            )
-=======
     #     owner, repo, _ = parse_gh_issue_url(issue_url)
     #     # If `--repo_path` was specified with a different github URL, then the record will contain
     #     # the forking user
@@ -1311,4 +1254,3 @@ class SWEEnv(gym.Env):
     #             "any required changes onto the branch and then click "
     #             "'Ready for Review' to bring it to the attention of the maintainers.",
     #         )
->>>>>>> origin/main
