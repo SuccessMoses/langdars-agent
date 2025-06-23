@@ -1,5 +1,4 @@
 from .udocker_env import BaseSWEEnv
-from tools import tool # Assuming 'tool' decorator is available from a 'tools' module
 import shlex # For robust quoting of arguments that might contain spaces
 
 import json
@@ -7,6 +6,10 @@ from pathlib import Path
 
 # The path to commands.json relative to tool.py
 commands_json_path = Path("commands.json")
+
+def tool(func):
+    """Dummy decorator"""
+    return func
 
 class SWEEnv(BaseSWEEnv):
 
