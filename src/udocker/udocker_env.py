@@ -498,13 +498,10 @@ class BaseSWEEnv(gym.Env):
         self.logger.info("Environment shutdown complete.")
 
 # MARK: Helper functions #
-
     def _reset_container(self) -> None:
-        if self.container is not None:
+        if self.container_obj is not None:
             try:
-                self.container.terminate()
-            except KeyboardInterrupt:
-                raise
+                self.container_obj.remove()
             except:
                 self.logger.warning("Failed to terminate container", exc_info=True)
             else:
