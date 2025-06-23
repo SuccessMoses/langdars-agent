@@ -1,4 +1,4 @@
-from udocker_env import BaseSWEEnv
+from .udocker_env import BaseSWEEnv
 from tools import tool # Assuming 'tool' decorator is available from a 'tools' module
 import shlex # For robust quoting of arguments that might contain spaces
 
