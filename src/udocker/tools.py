@@ -1,4 +1,5 @@
 from .udocker_env import BaseSWEEnv
+from .commands import COMMANDS
 import shlex # For robust quoting of arguments that might contain spaces
 
 import json
@@ -15,7 +16,7 @@ class SWEEnv(BaseSWEEnv):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.add_commands()
+        self.add_commands(COMMANDS)
 
     # --- LangGraph Tools ---
 
