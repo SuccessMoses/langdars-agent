@@ -161,7 +161,8 @@ class _Container:
         interactive_arg = "-it" if interactive else ""
 
         full_udocker_cmd = f"run {interactive_arg}{mount_args} {self.name} {cmd}"
-        full_udocker_cmd = " ".join(full_udocker_cmd.split())
+        # remove extra whitespaces
+        # full_udocker_cmd = " ".join(full_udocker_cmd.split())
 
         print(f"Container Run: Executing '{cmd}' in '{self.name}'...")
 
