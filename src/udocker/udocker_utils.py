@@ -160,9 +160,10 @@ class _Container:
 
         interactive_arg = "-it" if interactive else ""
 
-        full_udocker_cmd = f"run {interactive_arg}{mount_args} {self.name} {cmd}"
-        # remove extra whitespaces
-        # full_udocker_cmd = " ".join(full_udocker_cmd.split())
+        # Safely wrap the command in double quotes for bash -c
+        bash_wrapped_cmd = f'/bin/bash -c "{cmd}"'
+
+        full_udocker_cmd = f"run {interactive_arg}{mount_args} {self.name} {bash_wrapped_cmd}"
 
         print(f"Container Run: Executing '{cmd}' in '{self.name}'...")
 
@@ -174,7 +175,7 @@ class _Container:
         if remove_result["returncode"] != 0:
             print(f"WARNING: Container removal failed with exit code {remove_result['returncode']}. Stderr: {remove_result['stderr'].strip()}")
         print(f"Container '{self.name}' removed.")
-        
+                
 class Container(_Container):
 
     def _get_container_host_root_path(self) -> str:
