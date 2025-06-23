@@ -175,7 +175,7 @@ class _Container:
         if remove_result["returncode"] != 0:
             print(f"WARNING: Container removal failed with exit code {remove_result['returncode']}. Stderr: {remove_result['stderr'].strip()}")
         print(f"Container '{self.name}' removed.")
-                
+
 class Container(_Container):
 
     def _get_container_host_root_path(self) -> str:
@@ -201,6 +201,43 @@ class Container(_Container):
 
         print(f"Successfully retrieved container host root path: {container_root_path}")
         return container_root_path
+    
+    
+    def write_file_to_container(self, contents: str, container_dest_path: str) -> dict:
+        """
+        Writes a string directly to a file inside the container at the specified absolute path.
+
+        Args:
+            contents: The string content to write.
+            container_dest_path: The absolute file path inside the container where the string should be written.
+
+        Returns:
+            A dictionary with 'stdout', 'stderr', and 'returncode' of the operation.
+        """
+        try:
+            if not os.path.isabs(container_dest_path):
+                raise ValueError(f"container_dest_path must be an absolute path: '{container_dest_path}'")
+
+            container_host_root = self._get_container_host_root_path()
+            host_file_path = os.path.join(container_host_root, container_dest_path.lstrip(os.sep))
+
+            # Ensure the parent directory exists
+            os.makedirs(os.path.dirname(host_file_path), exist_ok=True)
+
+            # Write contents directly to the file
+            with open(host_file_path, "w", encoding="utf-8") as f:
+                f.write(contents)
+
+            print(f"Successfully wrote contents to '{host_file_path}' in container '{self.name}'")
+            return {
+                "stdout": f"Successfully wrote to '{container_dest_path}' in container '{self.name}'.",
+                "stderr": "",
+                "returncode": 0
+            }
+        except Exception as e:
+            error_msg = f"Error writing to '{container_dest_path}' in udocker container '{self.name}': {e}"
+            return {"stdout": "", "stderr": error_msg, "returncode": 1}
+
         
     def copy_host_path_to_container(self, host_src_path: str, container_full_dest_path: str) -> dict:
         """
@@ -262,15 +299,9 @@ def copy_file_to_container(container: Container, contents: str, container_path: 
         container_path: The absolute path inside the container where the string should be copied to.
                         This will be the final path of the file inside the container.
     """
-    temp_file_name = None
     try:
-        # Create a temporary file on the host with the string contents
-        with tempfile.NamedTemporaryFile(delete=False, mode="w", encoding="utf-8") as temp_file:
-            temp_file_name = temp_file.name
-            temp_file.write(contents)
-
         # Use the Container's method to copy this temporary file into the container
-        copy_result = container.copy_host_path_to_container(temp_file_name, container_path)
+        copy_result = container.write_file_to_container(contents, container_path)
         
         # Check the result of the copy operation
         if copy_result["returncode"] != 0:
@@ -281,10 +312,6 @@ def copy_file_to_container(container: Container, contents: str, container_path: 
         logger.error(f"An error occurred in copy_file_to_container (string content): {e}")
         logger.error(traceback.format_exc()) # Log the full traceback
         raise # Re-raise to ensure calling code knows it failed
-    finally:
-        # Cleanup: Remove the temporary file if it was created
-        if temp_file_name and os.path.exists(temp_file_name):
-            os.remove(temp_file_name)
 
 
 # This function copies any file or directory from host to container
