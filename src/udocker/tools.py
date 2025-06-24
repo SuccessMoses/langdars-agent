@@ -40,7 +40,7 @@ class SWEEnv(BaseSWEEnv):
         else:
             bash_command = f"open {shlex.quote(path)}"
         
-        return self.run_bash_command(bash_command)
+        return self._communicate(bash_command)
 
     @tool
     def goto(self, line_number: int):
@@ -53,21 +53,21 @@ class SWEEnv(BaseSWEEnv):
         """
         # Bash 'goto' command expects a single line number
         bash_command = f"goto {line_number}"
-        return self.run_bash_command(bash_command)
+        return self._communicate(bash_command)
 
     @tool
     def scroll_down(self):
         """Moves the window down {WINDOW} lines."""
         # Bash 'scroll_down' command takes no arguments
         bash_command = "scroll_down"
-        return self.run_bash_command(bash_command)
+        return self._communicate(bash_command)
 
     @tool
     def scroll_up(self):
         """Moves the window up {WINDOW} lines."""
         # Bash 'scroll_up' command takes no arguments
         bash_command = "scroll_up"
-        return self.run_bash_command(bash_command)
+        return self._communicate(bash_command)
 
     @tool
     def create(self, filename: str):
@@ -80,14 +80,14 @@ class SWEEnv(BaseSWEEnv):
         """
         # Bash 'create' command expects the filename
         bash_command = f"create {shlex.quote(filename)}"
-        return self.run_bash_command(bash_command)
+        return self._communicate(bash_command)
 
     @tool
     def submit(self):
         """Submits your current code and terminates the session."""
         # Bash 'submit' command takes no arguments
         bash_command = "submit"
-        return self.run_bash_command(bash_command)
+        return self._communicate(bash_command)
 
     @tool
     def search_dir(self, search_term: str, directory: str = None):
@@ -106,7 +106,7 @@ class SWEEnv(BaseSWEEnv):
             bash_command = f"search_dir {shlex.quote(search_term)} {shlex.quote(directory)}"
         else:
             bash_command = f"search_dir {shlex.quote(search_term)}"
-        return self.run_bash_command(bash_command)
+        return self._communicate(bash_command)
 
     @tool
     def search_file(self, search_term: str, file: str = None):
@@ -125,7 +125,7 @@ class SWEEnv(BaseSWEEnv):
             bash_command = f"search_file {shlex.quote(search_term)} {shlex.quote(file)}"
         else:
             bash_command = f"search_file {shlex.quote(search_term)}"
-        return self.run_bash_command(bash_command)
+        return self._communicate(bash_command)
 
     @tool
     def find_file(self, file_name: str, directory: str = None):
@@ -144,7 +144,7 @@ class SWEEnv(BaseSWEEnv):
             bash_command = f"find_file {shlex.quote(file_name)} {shlex.quote(directory)}"
         else:
             bash_command = f"find_file {shlex.quote(file_name)}"
-        return self.run_bash_command(bash_command)
+        return self._communicate(bash_command)
 
     @tool
     def edit(self, to_replace: str, new_content: str):
@@ -160,4 +160,4 @@ class SWEEnv(BaseSWEEnv):
         # The 'edit' command explicitly uses the $'...' syntax for literal strings
         # This is crucial for handling newlines and other special characters correctly within Bash.
         bash_command = f"edit ${shlex.quote(to_replace)} ${shlex.quote(new_content)}"
-        return self.run_bash_command(bash_command)
+        return self._communicate(bash_command)
