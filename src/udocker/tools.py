@@ -12,6 +12,8 @@ def tool(func):
     """Dummy decorator"""
     return func
 
+COMMANDS = [cmd for cmd in COMMANDS if not "execute" in cmd["name"]]
+
 class SWEEnv(BaseSWEEnv):
 
     def __init__(self, *args, **kwargs):
