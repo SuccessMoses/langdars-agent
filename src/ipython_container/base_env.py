@@ -229,7 +229,7 @@ class BaseSWEEnv(gym.Env):
                 self.record["repo"].removeprefix("local://"),
                 "/" + self._repo_name,
             )
-            self.communicate_with_handling(
+            self.communicate(
                 input=f"chown -R root:root {self._repo_name}",
                 error_msg="Failed to change permissions on copied repository",
             )
@@ -251,14 +251,14 @@ class BaseSWEEnv(gym.Env):
             clone_method = "full"
             self.logger.debug(msg)
         if clone_method == "full":
-            self.communicate_with_handling(
+            self.communicate(
                 input=f"git clone {clone_url} {self._repo_name}",
                 error_msg="Failed to clone repository from conservative method",
                 timeout_duration=LONG_TIMEOUT,
             )
         else:
             base_commit = self.record["base_commit"]
-            self.communicate_with_handling(
+            self.communicate(
                 input="&&".join(
                     (
                         f"mkdir {self._repo_name}",
@@ -337,7 +337,7 @@ class BaseSWEEnv(gym.Env):
             f"git reset --hard {self.base_commit}",
             "git clean -fdxq",
         ]:
-            self.communicate_with_handling(
+            self.communicate(
                 input=cmd,
                 error_msg="Failed to clean repository",
             )
@@ -365,13 +365,13 @@ class BaseSWEEnv(gym.Env):
             "export SEARCH_FILES=()",
             "export SEARCH_INDEX=0",
         ]:
-            self.communicate_with_handling(
+            self.communicate(
                 input=cmd,
                 error_msg="Failed to reset environment variables",
             )
 
         # Set up environment
-        self.communicate_with_handling(
+        self.communicate(
             "source /root/miniconda3/etc/profile.d/conda.sh",
             error_msg="Failed to source conda",
         )
@@ -379,7 +379,7 @@ class BaseSWEEnv(gym.Env):
         system = self.communicate("uname -s").strip().lower()
         arch = self.communicate("uname -m").strip().lower()
         if system == "linux" and arch == "x86_64":
-            self.communicate_with_handling(
+            self.communicate(
                 "apt update; apt install build-essential -y",
                 error_msg="Failed to install build-essential",
                 timeout_duration=LONG_TIMEOUT,
@@ -389,7 +389,7 @@ class BaseSWEEnv(gym.Env):
         if self.install_environment:
             self.install_env()
         # Install mypy for linting purposes
-        self.communicate_with_handling("pip install flake8", error_msg="Failed to install flake8 (lint library)")
+        self.communicate("pip install flake8", error_msg="Failed to install flake8 (lint library)")
 
         if self.args.cache_task_images:
             envs = self.communicate("env")
@@ -415,25 +415,25 @@ class BaseSWEEnv(gym.Env):
         self.communicate(input="cd /")
         # hardcode environment setting for code graph script
         self.logger.info('Setting up environment for code graph...')
-        output_logs = self.communicate_with_handling('pip install networkx grep_ast diskcache tqdm pygments dataclasses && pip list && which pip', 
+        output_logs = self.communicate('pip install networkx grep_ast diskcache tqdm pygments dataclasses && pip list && which pip', 
                                                      error_msg="Failed to install some packages --- ",
                                                      timeout_duration=LONG_TIMEOUT)
         # resolve the issue of incompatible version for tree-sitter
-        self.communicate_with_handling('pip install tree-sitter==0.20.4', error_msg="Failed to install downgrade tree-sitter.\n")
-        self.communicate_with_handling('chmod +x /root/construct_graph.py', error_msg="Failed to make construct graph file executable.\n")
+        self.communicate('pip install tree-sitter==0.20.4', error_msg="Failed to install downgrade tree-sitter.\n")
+        self.communicate('chmod +x /root/construct_graph.py', error_msg="Failed to make construct graph file executable.\n")
         self.logger.info('Constructing code graph...')
 
         base_path = "/root/persistent_data" if self.args.persistent_volume else ""
         code_graph_path = f"{base_path}/{self.record['instance_id']}"
         self.logger.info(f'Code graph path: {code_graph_path}')
 
-        response = self.communicate_with_handling(
+        response = self.communicate(
             input=f"/root/construct_graph.py --repo_dir {self._repo_name} --output_dir {code_graph_path}",
             error_msg="Failed to initialize code graph\n",
             timeout_duration=LONG_TIMEOUT,
         )
         self.logger.info(f"Code graph initialized:\n {response}")
-        self.communicate_with_handling(
+        self.communicate(
             input=f"cd {self._repo_name}",
             error_msg="Failed to change directory to main\n",
         )
@@ -451,7 +451,7 @@ class BaseSWEEnv(gym.Env):
             shell=True,
             check=False,
         )
-        self.communicate_with_handling(
+        self.communicate(
             input="git apply /root/test.patch",
             error_msg="Failed to apply test patch correctly",
         )
@@ -582,19 +582,19 @@ class BaseSWEEnv(gym.Env):
         """
         Initialize custom commands within container
         """
-        self.communicate_with_handling(
+        self.communicate(
             "source /root/.bashrc",
             error_msg="Failed to source .bashrc",
         )
-        self.communicate_with_handling(
+        self.communicate(
             "mkdir -p /root/commands",
             error_msg="Failed to create commands directory",
         )
-        self.communicate_with_handling(
+        self.communicate(
             "touch /root/commands/__init__.py",
             error_msg="Failed to create __init__.py",
         )
-        self.communicate_with_handling(
+        self.communicate(
             "export PATH=$PATH:/root/commands",
             error_msg="Failed to add commands directory to PATH",
         )
@@ -622,10 +622,10 @@ class BaseSWEEnv(gym.Env):
         # Use self.container_obj.run() directly
         # This will call our modified executor which returns stdout, stderr, returncode
         try:
-            self.returncode = self.container_obj.run(input_command)
+            returncode = self.container_obj.run(input_command)
 
             # Check for potential errors based on returncode
-            if self.returncode != 0:
+            if returncode != 0:
                 self.logger.warning(
                     f"Command '{input_command}' failed with exit code {self.returncode}. "
                 )
@@ -642,8 +642,9 @@ class BaseSWEEnv(gym.Env):
             output: Output of the command
             success: whether the exit code was 0
         """
-        output = self._communicate(f"/bin/bash -n <<'EOF'\n{input}\nEOF\n")
-        return output, self.returncode == 0
+        assert self.container_obj is not None, "Container object is not initialized."
+
+        self.container_obj.check_syntax(input)
 
     def communicate(self, input: str, timeout_duration: int | float = 25, *, set_last_action: bool = False) -> str:
         """
@@ -659,9 +660,7 @@ class BaseSWEEnv(gym.Env):
         """
         if input.strip() != "exit":
             self.logger.log(logging.TRACE, "Input:\n%s", input)  # type: ignore
-            output, valid = self._check_syntax(input)
-            if not valid:
-                return output  # shows syntax errors
+            self._check_syntax(input)
             self._communicate(
                 input,
                 timeout_duration=timeout_duration,
@@ -672,31 +671,10 @@ class BaseSWEEnv(gym.Env):
                 last_action_string = shlex.quote(input.strip())
                 input = f"export LAST_ACTION={last_action_string}"
                 self._communicate(input, timeout_duration=60)
-            return output
         else:
             self.container.terminate()
             self.returncode = 0
             return ""
-
-    def communicate_with_handling(self, input: str, error_msg: str, timeout_duration: int | float = 25) -> str:
-        """
-        Wrapper for communicate function that raises error if return code is non-zero
-
-        Args:
-            input: input to send to container
-            error_msg: error message to raise if return code is non-zero
-            timeout_duration: duration to wait for output
-
-        Returns:
-            output: output from container
-        """
-        logs = self.communicate(input, timeout_duration=timeout_duration)
-        if self.returncode != 0:
-            self.logger.error(f"{error_msg}: {logs}")
-            self.close()
-            msg = f"{error_msg}: {logs}"
-            raise RuntimeError(msg)
-        return logs
 
     def get_submission(self, output: str) -> str | None:
         """
@@ -735,7 +713,7 @@ class BaseSWEEnv(gym.Env):
             raise FileNotFoundError(msg)
         shell_commands = Path(script_path).read_text().splitlines(keepends=True)
         for i, cmd in enumerate(shell_commands):
-            self.communicate_with_handling(
+            self.communicate(
                 cmd,
                 error_msg=f"Failed to execute line {i}.",
                 timeout_duration=LONG_TIMEOUT,
@@ -804,7 +782,7 @@ class BaseSWEEnv(gym.Env):
             packages = install_configs.get("packages", "")
             if packages == "requirements.txt":
                 # Create conda environment
-                self.communicate_with_handling(
+                self.communicate(
                     f"conda create -n {env_name} python={install_configs['python']} -y",
                     error_msg="Failed to create conda environment",
                     timeout_duration=LONG_TIMEOUT,
@@ -814,11 +792,11 @@ class BaseSWEEnv(gym.Env):
                 content_reqs = get_requirements(self.record)
                 copy_file_to_container(self.container_obj, content_reqs, PATH_TO_REQS)
                 # Create conda environment + install reqs
-                self.communicate_with_handling(
+                self.communicate(
                     f"conda activate {env_name}",
                     error_msg="Failed to activate conda environment",
                 )
-                self.communicate_with_handling(
+                self.communicate(
                     f"pip install -r {PATH_TO_REQS}",
                     error_msg="Failed to install requirements.txt",
                     timeout_duration=LONG_TIMEOUT,
@@ -834,14 +812,14 @@ class BaseSWEEnv(gym.Env):
                 copy_file_to_container(self.container_obj, content_env_yml, PATH_TO_ENV_YML)
                 if install_configs.get("no_use_env"):
                     # Create conda environment
-                    self.communicate_with_handling(
+                    self.communicate(
                         f"conda create -c conda-forge -n {env_name} python={install_configs['python']} -y",
                         error_msg="Failed to create conda environment",
                         timeout_duration=LONG_TIMEOUT,
                     )
                     self.logger.debug("Created conda environment")
                     # Install packages
-                    self.communicate_with_handling(
+                    self.communicate(
                         f"conda env update -f {PATH_TO_ENV_YML}",
                         error_msg="Failed to install environment.yml",
                         timeout_duration=LONG_TIMEOUT,
@@ -849,7 +827,7 @@ class BaseSWEEnv(gym.Env):
                     self.logger.debug("Installed packages from environment.yml")
                 else:
                     # Create environment + install packages
-                    self.communicate_with_handling(
+                    self.communicate(
                         f"conda env create --file {PATH_TO_ENV_YML}",
                         error_msg="Failed to create conda environment with environment.yml",
                         timeout_duration=LONG_TIMEOUT,
@@ -859,7 +837,7 @@ class BaseSWEEnv(gym.Env):
             else:
                 python_env = f"python{install_configs['python']}"
                 if self._conda_environment_exists(python_env):
-                    self.communicate_with_handling(
+                    self.communicate(
                         f"conda create --name {env_name} --clone {python_env}",
                         error_msg="Failed to clone conda environment",
                         timeout_duration=LONG_TIMEOUT,
@@ -867,17 +845,17 @@ class BaseSWEEnv(gym.Env):
                     self.logger.debug("Cloned python conda environment")
                 else:
                     self.logger.debug(f"Could not find {python_env}, creating new environment")
-                    self.communicate_with_handling(
+                    self.communicate(
                         f"conda create -n {env_name} python={install_configs['python']} -y",
                         error_msg="Failed to create conda environment",
                         timeout_duration=LONG_TIMEOUT,
                     )
-                self.communicate_with_handling(
+                self.communicate(
                     f"conda activate {env_name}",
                     error_msg="Failed to activate conda environment",
                 )
                 if packages.strip():
-                    self.communicate_with_handling(
+                    self.communicate(
                         f"conda install {packages} -y",
                         error_msg="Failed to install packages",
                         timeout_duration=LONG_TIMEOUT,
@@ -885,7 +863,7 @@ class BaseSWEEnv(gym.Env):
                     self.logger.debug("Installed conda packages")
             # Install extra pip packages if specified
             if install_configs.get("pip_packages"):
-                self.communicate_with_handling(
+                self.communicate(
                     f"source activate {env_name} && pip install {' '.join(install_configs['pip_packages'])}",
                     error_msg="Failed to install pip packages",
                     timeout_duration=LONG_TIMEOUT,
@@ -893,13 +871,13 @@ class BaseSWEEnv(gym.Env):
                 self.logger.debug("Installed extra pip dependencies")
 
         # Activate environment
-        self.communicate_with_handling(f"conda activate {env_name}", error_msg="Failed to activate conda environment")
+        self.communicate(f"conda activate {env_name}", error_msg="Failed to activate conda environment")
 
         # Install repo at base commit
         if install_configs.get("pre_install"):
             self.logger.info("Running pre-install commands...")
             for pre_install_cmd in install_configs["pre_install"]:
-                self.communicate_with_handling(
+                self.communicate(
                     pre_install_cmd,
                     error_msg="Pre-install commands failed to execute successfully",
                     timeout_duration=LONG_TIMEOUT,
@@ -908,7 +886,7 @@ class BaseSWEEnv(gym.Env):
         self.logger.info(f"Installing {self._repo_name} at base commit...")
         if install_configs.get("install"):
             install_cmd = install_configs["install"]
-            self.communicate_with_handling(
+            self.communicate(
                 install_cmd,
                 error_msg="Install command failed to execute successfully",
                 timeout_duration=LONG_TIMEOUT,
@@ -917,7 +895,7 @@ class BaseSWEEnv(gym.Env):
         if install_configs.get("post_install"):
             self.logger.info("Running post-install commands...")
             for post_install_cmd in install_configs["post_install"]:
-                self.communicate_with_handling(
+                self.communicate(
                     post_install_cmd,
                     error_msg="Post-install commands failed to execute successfully",
                 )
@@ -934,7 +912,7 @@ class BaseSWEEnv(gym.Env):
             contents = command["contents"]
             copy_file_to_container(self.container_obj, contents, f"/root/commands/{name}")
             if command["type"] == "source_file":
-                self.communicate_with_handling(
+                self.communicate(
                     f"source /root/commands/{name}",
                     error_msg=(
                         f"Failed to source {name}. If you meant to make a script,"
@@ -942,7 +920,7 @@ class BaseSWEEnv(gym.Env):
                     ),
                 )
             elif command["type"] == "script":
-                self.communicate_with_handling(
+                self.communicate(
                     f"chmod +x /root/commands/{name}",
                     error_msg=f"Failed to chmod {name}",
                 )
@@ -970,17 +948,17 @@ class BaseSWEEnv(gym.Env):
     #         raise ValueError(msg) from e
     #     branch_name = f"swe-agent-fix-#{issue.number}-" + str(random.random())[2:10]
 
-    #     self.communicate_with_handling(
+    #     self.communicate(
     #         input="rm -f model.patch",
     #         error_msg="Failed to remove model patch",
     #         timeout_duration=60,
     #     )
-    #     self.communicate_with_handling(
+    #     self.communicate(
     #         input=f"git checkout -b {branch_name}",
     #         error_msg="Failed to switch to new branch",
     #         timeout_duration=60,
     #     )
-    #     self.communicate_with_handling(
+    #     self.communicate(
     #         input="git add .",
     #         error_msg="Failed to add commits",
     #         timeout_duration=60,
@@ -990,7 +968,7 @@ class BaseSWEEnv(gym.Env):
     #         shlex.quote("Fix: {issue.title}"),
     #         shlex.quote("Closes #{issue.number}"),
     #     ]
-    #     self.communicate_with_handling(
+    #     self.communicate(
     #         input=f"git commit -m {commit_msg[0]} -m  {commit_msg[1]} {dry_run_flag}",
     #         error_msg="Failed to commit changes",
     #         timeout_duration=60,
@@ -1015,14 +993,14 @@ class BaseSWEEnv(gym.Env):
     #             token_prefix = f"{self._github_token}@"
     #         fork_url = f"https://{token_prefix}github.com/{forker}/{repo}.git"
     #         self.logger.debug(f"Using fork: {fork_url}")
-    #         self.communicate_with_handling(
+    #         self.communicate(
     #             input=f"git remote add fork {fork_url}",
     #             error_msg="Failed to create new git remote",
     #             timeout_duration=60,
     #         )
     #         remote = "fork"
     #     dry_run_prefix = "echo " if _dry_run else ""
-    #     self.communicate_with_handling(
+    #     self.communicate(
     #         input=f"{dry_run_prefix} git push {remote} {branch_name}",
     #         error_msg=(
     #             "Failed to push branch to remote. Please check your token and permissions. "

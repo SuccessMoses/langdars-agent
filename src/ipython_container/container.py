@@ -386,6 +386,25 @@ class _IPythonContainer:
             self.name, 
             f'{cmd}; echo \"__EXIT_CODE__$?\"'
         ]).execute()
+    
+    def check_syntax(self, cmd):
+        Msg().out(f"checking syntax: '{cmd}'")
+        # Wrap with bash -n for syntax check
+        syntax_check_cmd = f"/bin/bash -n <<'EOF'\n{cmd}\nEOF"
+
+        # Run syntax check
+        # 0 means syntax OK, non-zero means syntax error
+        res = UMain([
+            'udocker',
+            '--allow-root',
+            'run',
+            self.name,
+            syntax_check_cmd
+        ]).execute()
+        if res == 0:
+            Msg().out("Syntax is valid")
+        else:
+            Msg().out("Syntax is not valid")
 
     def remove(self):
         print(f"Removing container {self.name}...")
