@@ -286,7 +286,6 @@ class BackgroundShell:
                 
             self.process.stdin.write(command_str + '\n')
             self.process.stdin.flush()
-            Msg().out(f"Sent: {command_str}", l=4)
         except Exception as e:
             Msg().err(f"Error sending command: {e}")
 
@@ -379,6 +378,7 @@ class _IPythonContainer:
         self.engine = ChRootEngine(LocalRepository(), self.name)
 
     def run(self, cmd):
+        Msg().out(f"Running: {cmd}", l=4)
         return UMain([
             'udocker', 
             '--allow-root', 
