@@ -107,11 +107,6 @@ def copy_file_to_container(container: IPythonContainer, contents: str, container
         # Use the Container's method to copy this temporary file into the container
         copy_result = container.write_file_to_container(contents, container_path)
         
-        # Check the result of the copy operation
-        if copy_result["returncode"] != 0:
-            logger.error(f"Failed to copy string content to container (udocker): {copy_result['stderr']}")
-            raise RuntimeError(f"Failed to copy string content to container: {copy_result['stderr']}")
-
     except Exception as e:
         logger.error(f"An error occurred in copy_file_to_container (string content): {e}")
         logger.error(traceback.format_exc()) # Log the full traceback
@@ -137,8 +132,3 @@ def copy_anything_to_container(container: IPythonContainer, host_path: str, cont
     
     # Delegate to the Container's general copy method
     copy_result = container.copy_host_path_to_container(host_path, container_path)
-
-    if copy_result["returncode"] != 0:
-        msg = f"Error copying '{host_path}' to container at '{container_path}': {copy_result['stderr']}"
-        logger.error(msg)
-        raise RuntimeError(msg)
