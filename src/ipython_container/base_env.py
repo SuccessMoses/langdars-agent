@@ -23,22 +23,23 @@ from simple_parsing.helpers.serialization.serializable import FrozenSerializable
 from swebench.harness.constants import MAP_REPO_VERSION_TO_SPECS
 from swebench.harness.test_spec.python import get_environment_yml, get_requirements
 
-from .udocker_utils import (
-    Container,
+from .utils import (
     copy_anything_to_container,
     copy_file_to_container,
     image_exists,
 )
+from .container import IPythonContainer
+
 from .. import REPO_ROOT
-from ..environment.utils import (
+from ..base_env.utils import (
     InvalidGithubURL,
     format_trajectory_markdown, # fixme
     get_gh_issue_data, #fixme
     get_instances,
     parse_gh_issue_url, # fixme
 )
-from ..utils.config import keys_config
-from ..utils.log import default_logger, get_logger
+from ..base_env.config import keys_config
+from ..base_env.log import default_logger, get_logger
 
 LONG_TIMEOUT = float(keys_config.get("SWE_AGENT_ENV_LONG_TIMEOUT", 500))
 AGENT_ACTION_TIMEOUT = float(keys_config.get("SWE_AGENT_ACTION_TIMEOUT", 120))
@@ -176,7 +177,7 @@ class BaseSWEEnv(gym.Env):
 
         # Establish connection with execution container
         self.image_name = args.image_name
-        self.container_obj: Container | None = None
+        self.container_obj: IPythonContainer | None = None
         self._reset_container()
 
         self.idx = 0
@@ -558,17 +559,18 @@ class BaseSWEEnv(gym.Env):
             initial_mounts.append(f"{self.args.persistent_volume}:/root/persistent_data")
 
         try:
-            self.container_obj = Container(image=image_to_use, name=udocker_instance_name)
+            self.container_obj = IPythonContainer(image=image_to_use, name=udocker_instance_name)
         except Exception as e:
             # Catch any errors during Container class instantiation (pull/create)
             msg = f"Failed to initialize udocker container '{udocker_instance_name}' from image '{image_to_use}': {e}"
             self.logger.error(msg)
             raise RuntimeError(msg) from e
 
-        # Add the persistent volume mount to the container object's stored mounts
-        # This ensures it's available by key for future 'run' commands
-        if self.args.persistent_volume:
-            self.container_obj.add_mount("persistent_data_volume", initial_mounts[0])
+        # # Add the persistent volume mount to the container object's stored mounts
+        # # This ensures it's available by key for future 'run' commands
+        # if self.args.persistent_volume:
+        #     self.container_obj.add_mount("persistent_data_volume", initial_mounts[0])
+        # FIXME: IPythonContainer does not have add_mount() method
 
         self.logger.info("🌱 Environment Initialized")
 

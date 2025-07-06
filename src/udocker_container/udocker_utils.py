@@ -8,7 +8,7 @@ from pathlib import Path
 import tempfile
 import traceback
 
-from ..utils.log import get_logger
+from ..base_env.log import get_logger
 logger = get_logger("env_utils")
 
 

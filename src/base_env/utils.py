@@ -22,8 +22,8 @@ from git import InvalidGitRepositoryError, Repo
 
 import docker
 from docker.models.containers import Container
-from ..utils.config import keys_config
-from ..utils.log import get_logger
+from .config import keys_config
+from .log import get_logger
 
 DOCKER_START_UP_DELAY = float(keys_config.get("SWE_AGENT_DOCKER_START_UP_DELAY", 1))
 GITHUB_ISSUE_URL_PATTERN = re.compile(r"github\.com\/(.*?)\/(.*?)\/issues\/(\d+)")

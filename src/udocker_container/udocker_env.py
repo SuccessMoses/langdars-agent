@@ -23,27 +23,22 @@ from simple_parsing.helpers.serialization.serializable import FrozenSerializable
 from swebench.harness.constants import MAP_REPO_VERSION_TO_SPECS
 from swebench.harness.test_spec.python import get_environment_yml, get_requirements
 
-import docker
-import docker.errors
-import docker.models.containers
-from .. import REPO_ROOT
-from ..environment.utils import (
-    PROCESS_DONE_MARKER_END,
-    PROCESS_DONE_MARKER_START,
-    InvalidGithubURL,
+from .udocker_utils import (
+    Container,
     copy_anything_to_container,
     copy_file_to_container,
-    format_trajectory_markdown,
-    get_container,
-    get_gh_issue_data,
-    get_instances,
     image_exists,
-    parse_gh_issue_url,
-    read_with_timeout,
-    read_with_timeout_experimental,
 )
-from ..utils.config import keys_config
-from ..utils.log import default_logger, get_logger
+from .. import REPO_ROOT
+from ..base_env.utils import (
+    InvalidGithubURL,
+    format_trajectory_markdown, # fixme
+    get_gh_issue_data, #fixme
+    get_instances,
+    parse_gh_issue_url, # fixme
+)
+from ..base_env.config import keys_config
+from ..base_env.log import default_logger, get_logger
 
 LONG_TIMEOUT = float(keys_config.get("SWE_AGENT_ENV_LONG_TIMEOUT", 500))
 AGENT_ACTION_TIMEOUT = float(keys_config.get("SWE_AGENT_ACTION_TIMEOUT", 120))
@@ -181,8 +176,7 @@ class BaseSWEEnv(gym.Env):
 
         # Establish connection with execution container
         self.image_name = args.image_name
-        self.container_obj: docker.models.containers.Container | None = None
-        self.container: subprocess.Popen | None = None
+        self.container_obj: Container | None = None
         self._reset_container()
 
         self.idx = 0
@@ -345,19 +339,19 @@ class BaseSWEEnv(gym.Env):
                 error_msg="Failed to clean repository",
             )
 
-        # Move construct_codegraph.py to the container
-        subprocess.run(
-            f"docker cp {os.getcwd()}/src/environment/utils_codegraph.py {self.container_name}:/root/utils_codegraph.py",
-            shell=True,
+        assert self.container_obj is not None # Ensure container_obj is initialized
+        self.container_obj.copy_file_to_container(
+            host_src_path=os.path.join(os.getcwd(), "src", "environment", "utils_codegraph.py"),
+            container_dest_path="/root/utils_codegraph.py"
         )
-        subprocess.run(
-            f"docker cp {os.getcwd()}/src/environment/construct_graph.py {self.container_name}:/root/construct_graph.py",
-            shell=True,
+        self.container_obj.copy_file_to_container(
+            host_src_path=os.path.join(os.getcwd(), "src", "environment", "construct_graph.py"),
+            container_dest_path="/root/construct_graph.py"
         )
         # Move graph retrieval script to the container
-        subprocess.run(
-            f"docker cp {os.getcwd()}/src/environment/retrieve_graph.py {self.container_name}:/root/retrieve_graph.py",
-            shell=True,
+        self.container_obj.copy_file_to_container(
+            host_src_path=os.path.join(os.getcwd(), "src", "environment", "retrieve_graph.py"),
+            container_dest_path="/root/retrieve_graph.py"
         )
 
         # Reset environment variables
@@ -474,147 +468,40 @@ class BaseSWEEnv(gym.Env):
             return new_action
         return action
 
-    # def step(self, action: str) -> tuple[str | None, int, bool, dict]:
-    #     """
-    #     Runs an action proposed by the agent in the environment and returns the corresponding output.
-
-    #     Args:
-    #         action: command to run in bash shell
-
-    #     Returns:
-    #         observation:  output from container
-    #         reward: value between 0 and 1 quantifying correctness of output + environment state
-    #         done: whether task is over
-    #         info: additional information (e.g. debugging information)
-    #     """
-    #     info = {}
-
-    #     # action = self.correct_edit_action(action)
-    #     observation = ""
-    #     # Handle special actions
-    #     if action.strip() == "skip":
-    #         observation = "Skipped"
-    #         info["exit_status"] = "skipped"
-    #         return observation, 0, True, info
-    #     if action in {"exit_context", "exit_cost", "exit_error", "exit_format", "exit_api"}:
-    #         try:
-    #             observation = self.communicate(input="submit")
-    #             submission = self.get_submission(observation)
-    #             assert submission is not None and submission.strip() != "", AssertionError("No submission found.")
-    #             self.logger.info(f"Found submission: {submission}")
-    #             info["exit_status"] = f"submitted ({action})"
-    #             info["submission"] = submission
-    #             observation = "Exited (autosubmitted)"
-    #             self.logger.info("Exiting with autosubmission")
-    #             return observation, 0, True, info
-    #         except KeyboardInterrupt:
-    #             raise
-    #         except:
-    #             observation = "Exited"
-    #             info["exit_status"] = action
-    #             return observation, 0, True, info
-
-    #     # Attempt to run action in container
-    #     observation = ""
-    #     try:
-    #         observation = self.communicate(input=action, timeout_duration=AGENT_ACTION_TIMEOUT, set_last_action=True)
-    #     except TimeoutError:
-    #         try:
-    #             self.interrupt()
-    #             observation += "\nEXECUTION TIMED OUT. If the command is intended to run in the background or requires more time to complete, please try running it in 'execute_server'."
-    #         except RuntimeError as e:
-    #             observation += "\nEXECUTION TIMED OUT AND INTERRUPT FAILED. RESTARTING PROCESS."
-    #             info["exit_status"] = "early_exit"
-    #             self.logger.warning(f"Failed to interrupt container: {e}\nRESTARTING PROCESS.")
-    #             self.reset_container()
-    #             return observation, 0, True, info
-    #     except RuntimeError as e:
-    #         observation += "\nCOMMAND FAILED TO EXECUTE. RESTARTING PROCESS."
-    #         info["exit_status"] = "early_exit"
-    #         self.logger.warning(f"Failed to execute command: {e}\nRESTARTING PROCESS.")
-    #         self.reset_container()
-    #         return observation, 0, True, info
-    #     except BrokenPipeError as e:
-    #         observation += "\nBROKEN PIPE ERROR. RESTARTING PROCESS."
-    #         info["exit_status"] = "early_exit"
-    #         self.logger.error(f"Broken pipe error: {e}\nRESTARTING PROCESS.")
-    #         self.reset_container()
-    #         return observation, 0, True, info
-    #     except Exception:
-    #         observation += "\nEXECUTION FAILED OR COMMAND MALFORMED"
-    #         self.logger.exception("Unknown exception")
-
-    #     # Record submission and end episode if `submit` keyword found
-    #     submission = self.get_submission(observation)
-    #     if submission is not None:
-    #         self.logger.info(f"Found submission: {submission}")
-    #         info["exit_status"] = "submitted"
-    #         info["submission"] = submission if submission.strip() != "" else None
-    #         observation = submission if submission.strip() != "" else None
-    #         return observation, 0, True, info
-    #     return observation, 0, False, info
-
     def close(self) -> None:
         """
-        Handle environment shutdown
+        Handle environment shutdown for udocker containers.
+        This method will manage the lifecycle of the udocker container.
         """
         self.logger.info("Beginning environment shutdown...")
-        try:
-            self.communicate(input="exit")
-        except KeyboardInterrupt:
-            raise
-        except:
-            self.logger.warning("Errors when exiting container", exc_info=True)
-        assert self.container is not None  # mypy
-        self.container.terminate()
+        
         if self.container_obj is None:
-            pass
+            # If container_obj is None, it means it was never properly initialized or already removed.
+            self.logger.info("Container object is already None, no further action needed for container.")
+            pass # Nothing to close/remove
         elif self.persistent:
-            # stopping is Podman specific, but doesn't hurt to include
-            # https://stackoverflow.com/a/32428199/
-            # Want to avoid https://github.com/princeton-nlp/SWE-agent/issues/496
-            # Note that container_obj.status might not be updated throughout the container
-            # lifecycle, so let's get the container_obj again
-            assert self.container_name
-            try:
-                self.container_obj = docker.from_env().containers.get(self.container_name)
-            except Exception as e:
-                self.logger.warning(f"Failed to get fresh container object: {e}", exc_info=True)
-            if self.container_obj.status not in {"paused", "exited", "dead", "stopping"}:
-                try:
-                    self.container_obj.pause()
-                except Exception:
-                    self.logger.warning("Failed to pause container.", exc_info=True)
-                except KeyboardInterrupt:
-                    raise
-                else:
-                    self.logger.info("Agent container paused")
-            else:
-                self.logger.info(f"Agent container status: {self.container_obj.status}")
+            self.logger.info(f"Persistent udocker container '{self.container_obj.name}' will remain on disk for reuse.")
         else:
+            # For non-persistent containers, remove them to clean up resources.
             try:
-                self.container_obj.remove(force=True)
-            except KeyboardInterrupt:
-                raise
-            except docker.errors.NotFound:
-                # We already tried to exit the container, so it's actually good if
-                # it's not found
-                pass
-            except Exception:
-                self.logger.warning("Failed to remove container", exc_info=True)
-            else:
-                self.logger.info("Agent container stopped")
+                self.container_obj.remove() # Call our custom Container's remove method
+                self.logger.info(f"Non-persistent udocker container '{self.container_obj.name}' removed successfully.")
+            except Exception as e:
+                # Catch any errors during removal and log them, but don't prevent hook calls.
+                self.logger.warning(f"Failed to remove udocker container '{self.container_obj.name}': {e}", exc_info=True)
+        
+        self.container_obj = None
+
         for hook in self.hooks:
             hook.on_close()
+        
+        self.logger.info("Environment shutdown complete.")
 
-    # MARK: Helper functions #
-
+# MARK: Helper functions #
     def _reset_container(self) -> None:
-        if self.container is not None:
+        if self.container_obj is not None:
             try:
-                self.container.terminate()
-            except KeyboardInterrupt:
-                raise
+                self.container_obj.remove()
             except:
                 self.logger.warning("Failed to terminate container", exc_info=True)
             else:
@@ -639,48 +526,50 @@ class BaseSWEEnv(gym.Env):
         image_name_sanitized = image_name_sanitized.replace(":", "-")
         return f"{image_name_sanitized}-{hash_object.hexdigest()[:10]}"
 
+
     def _init_container(self, cached_image: str | None = None) -> None:
         """
-        Handles container initialization. Defines container name and creates it.
-        If cached_image is provided, it will use that image name instead of the default.
+        Handles container initialization for a udocker environment.
+        Leverages the custom 'Container' class to manage udocker instances.
+
+        Args:
+            cached_image: If provided, uses this image name instead of the default self.image_name.
         """
-        image_name = self.image_name
+        # Determine the image name to use
+        image_to_use = self.image_name
         if cached_image is not None:
-            image_name = cached_image
-            self.logger.info(f"Using cached image: {image_name}")
+            image_to_use = cached_image
+            self.logger.info(f"Using cached image: {image_to_use}")
+
+        udocker_instance_name = None
         if self.persistent:
-            assert self.container_name is not None
+            # If persistent, we must have a pre-defined container_name
+            # This assumes self.container_name is already set when persistent is True
+            assert self.container_name is not None, "Persistent container requires a predefined name."
+            udocker_instance_name = self.container_name
         else:
-            # Make sure that we get a new container name just in case removing didn't work.
-            # Might be a fix for https://github.com/princeton-nlp/SWE-agent/issues/451
-            self.container_name = self._get_container_name(image_name)
-        volume_mount = f"{self.args.persistent_volume}:/root/persistent_data" if self.args.persistent_volume else None
-        self.container, self.parent_pids = get_container(self.container_name, image_name, persistent=self.persistent, volume_mount=volume_mount)
+            udocker_instance_name = self._get_container_name(image_to_use)
+
+        # Define the volume mounts
+        # The 'Container' class expects a list of mount strings
+        initial_mounts = []
+        if self.args.persistent_volume:
+            # Assuming the persistent volume always maps to /root/persistent_data in the container
+            initial_mounts.append(f"{self.args.persistent_volume}:/root/persistent_data")
+
         try:
-            client = docker.from_env(timeout=600)
-        except docker.errors.DockerException as e:
-            if "Error while fetching server API version" in str(e):
-                msg = "Docker is not running. Please start Docker and try again."
-            else:
-                msg = "Unknown docker exception occurred. Are you sure docker is running?"
+            self.container_obj = Container(image=image_to_use, name=udocker_instance_name)
+        except Exception as e:
+            # Catch any errors during Container class instantiation (pull/create)
+            msg = f"Failed to initialize udocker container '{udocker_instance_name}' from image '{image_to_use}': {e}"
+            self.logger.error(msg)
             raise RuntimeError(msg) from e
-        t0 = time.time()
-        self.container_obj = None
-        while time.time() - t0 < 60:
-            try:
-                self.container_obj = client.containers.get(self.container_name)
-            except docker.errors.NotFound:
-                self.logger.debug("Couldn't find container. Let's wait and retry.")
-                time.sleep(1)
-            else:
-                break
-        else:
-            print(f"{self.persistent=}")
-            available_containers = client.containers.list(all=True)
-            available_containers_info = json.dumps([str(c.attrs) for c in available_containers], indent=2)
-            print(available_containers_info)
-            msg = "Failed to get container object."
-            raise RuntimeError(msg)
+
+        # Add the persistent volume mount to the container object's stored mounts
+        # This ensures it's available by key for future 'run' commands
+        if self.args.persistent_volume:
+            self.container_obj.add_mount("persistent_data_volume", initial_mounts[0])
+
         self.logger.info("🌱 Environment Initialized")
 
     def _init_scripts(self):
@@ -704,97 +593,49 @@ class BaseSWEEnv(gym.Env):
             error_msg="Failed to add commands directory to PATH",
         )
 
-    def _communicate_experimental(
-        self,
-        input: str,
-        timeout_duration: int | float = 25,
-    ) -> str:
-        """Experimental version of `_communicate`"""
-        assert self.container is not None
-        # Sleep to ensure that the exit code is in the last line
-        # See https://github.com/princeton-nlp/SWE-agent/issues/595
-        command_suffix = (
-            f'EXITSTATUS="$?"; sleep 0.01; echo {PROCESS_DONE_MARKER_START}$EXITSTATUS{PROCESS_DONE_MARKER_END}\n'
-        )
-        try:
-            self.returncode = None
-            cmd = input if input.endswith("\n") else input + "\n"
-            cmd += command_suffix
-            os.write(self.container.stdin.fileno(), cmd.encode())
-            time.sleep(0.03)
-            self.container.stdin.flush()
-        except BrokenPipeError:
-            traceback.print_exc()
-            self.logger.error("Failed to communicate with container. Check docker logs for more information.")
-            msg = "Failed to communicate with container"
-            raise RuntimeError(msg)
-
-        try:
-            buffer, exit_code = read_with_timeout_experimental(self.container, timeout_duration)
-        except Exception:
-            msg = f"Read with timeout failed on input:\n---\n{input}\n---"
-            self.logger.error(msg)
-            raise
-        if exit_code == "$EXITSTATUS":
-            # this sometimes happens if the command badly fails
-            # for example if you just try to run python with no arguments
-            # in this case, the error message is usually also garbage, so let's set
-            # something new.
-            # See https://github.com/princeton-nlp/SWE-agent/issues/630
-            buffer = (
-                "Unkknown error occurred when running the command. Please double check syntax "
-                "and that you're not running an interactive command."
-            )
-            self.logger.warning("Couldn't get real exit code. Setting it to 999")
-            exit_code = 999
-        elif not exit_code.isdigit():
-            msg = f"Failed to get exit code. Output:\n---\n{buffer}\n---"
-            raise RuntimeError(msg)
-        self.returncode = int(exit_code)
-        return buffer
-
     def _communicate(
         self,
-        input: str,
-        timeout_duration: int | float = 25,
+        input_command: str, 
+        timeout_duration: int | float = 25, 
+        mount_keys: list = None
     ) -> str:
-        """Runs command in container and returns output
+        """
+        Runs command in udocker container and returns output.
+        Simplified for custom udocker.Container class.
 
         Args:
-            input: command to run in container
-            timeout_duration: duration to wait for output
+            input_command: command to run in container
+            timeout_duration: (Currently ignored in this simplified version, as subprocess handles completion)
+                            Could be passed to subprocess.run(timeout=...) if fine-grained timeout needed.
+
+        Returns:
+            The combined stdout and stderr of the command.
         """
-        assert self.container is not None
-        communicate_method = keys_config.get(
-            "SWE_AGENT_COMMUNICATE_METHOD", default="end-marker", choices=["end-marker", "processes"]
-        )
-        if communicate_method == "end-marker":
-            return self._communicate_experimental(input, timeout_duration)
+        assert self.container_obj is not None, "Container object is not initialized."
+
+        # Use self.container_obj.run() directly
+        # This will call our modified executor which returns stdout, stderr, returncode
         try:
-            self.returncode = None
-            cmd = input if input.endswith("\n") else input + "\n"
-            os.write(self.container.stdin.fileno(), cmd.encode())
-            time.sleep(0.1)
-            self.container.stdin.flush()
-        except BrokenPipeError:
-            traceback.print_exc()
-            self.logger.error("Failed to communicate with container. Check docker logs for more information.")
-            msg = "Failed to communicate with container"
-            raise RuntimeError(msg)
-        try:
-            buffer = read_with_timeout(self.container, self.get_pids, timeout_duration)
-            self.container.stdin.write("echo $?\n")
-            time.sleep(0.1)
-            self.container.stdin.flush()
-            exit_code = read_with_timeout(self.container, self.get_pids, 5).strip()
+            result = self.container_obj.run(input_command, mount_keys)
+
+            # Update self.returncode
+            self.returncode = result["returncode"]
+
+            # Combine stdout and stderr for the return buffer
+            buffer = result["stdout"] + result["stderr"]
+
+            # Check for potential errors based on returncode
+            if self.returncode != 0:
+                self.logger.warning(
+                    f"Command '{input_command}' failed with exit code {self.returncode}. "
+                    f"Stderr:\n{result['stderr'].strip()}"
+                )
+
+            return buffer
         except Exception as e:
-            self.logger.error(f"Read with timeout failed on input:\n---\n{input}\n---")
-            raise e
-        if not exit_code.isdigit():
-            msg = f"Failed to get exit code. Output:\n---\n{buffer}\n---"
-            raise RuntimeError(msg)
-        self.returncode = int(exit_code)
-        return buffer
+            self.logger.error(f"Error executing command '{input_command}' in udocker container: {e}")
+            raise RuntimeError(f"Failed to execute command in udocker container: {e}") from e
+
 
     def _check_syntax(self, input: str) -> tuple[str, bool]:
         """
@@ -863,38 +704,21 @@ class BaseSWEEnv(gym.Env):
             raise RuntimeError(msg)
         return logs
 
-    def get_pids(self, all_pids: bool = False) -> list[str]:
+    def get_submission(self, output: str) -> str | None:
         """
-        Gets list of processes running inside docker container
+        Function for extracting diff patch submission at the end of an episode.
 
         Args:
-            all_pids: whether to return all pids, or whether to exclude ps
-                and parent PIDs
+            output: `submit` observation
 
         Returns:
-            list of PIDs
+            submission: diff patch submission
         """
-        pids = self.container_obj.exec_run("ps -eo pid,comm --no-headers").output.decode().split("\n")
-        pids = [x.split() for x in pids if x]
-        if not all_pids:
-            pids = [x for x in pids if x[1] != "ps" and x[0] not in self.parent_pids]
-        return pids
-
-    # def get_submission(self, output: str) -> str | None:
-    #     """
-    #     Function for extracting diff patch submission at the end of an episode.
-
-    #     Args:
-    #         output: `submit` observation
-
-    #     Returns:
-    #         submission: diff patch submission
-    #     """
-    #     pattern = r"\<\<SUBMISSION\|\|(.*)\|\|SUBMISSION\>\>"
-    #     match = re.search(pattern, output, re.DOTALL)
-    #     if match is None:
-    #         return None
-    #     return match.group(1)
+        pattern = r"\<\<SUBMISSION\|\|(.*)\|\|SUBMISSION\>\>"
+        match = re.search(pattern, output, re.DOTALL)
+        if match is None:
+            return None
+        return match.group(1)
 
     def run_shell_script(self, script_path: Path, *, location: str) -> None:
         """Run custom script supplied by user at `script_path`
@@ -1134,27 +958,6 @@ class BaseSWEEnv(gym.Env):
             else:
                 msg = f"Invalid command type: {command['type']}"
                 raise ValueError(msg)
-
-    def interrupt(self) -> None:
-        """
-        Send interrupt signal to container and exhaust stdout buffer with a communicate call
-        """
-        assert self.container is not None
-        assert self.container_obj is not None
-        pids = self.get_pids()
-        for pid, cmd in pids:
-            if pid not in self.parent_pids and cmd != "ps":
-                self.container_obj.exec_run(f"kill -9 {pid}")
-        try:
-            _ = read_with_timeout(self.container, self.get_pids, 20)
-        except TimeoutError:
-            pass
-        try:
-            output = self.communicate(input="echo 'interrupted'", timeout_duration=60)
-            assert output.strip().endswith("interrupted"), "container health check failed"
-        except TimeoutError:
-            msg = "Failed to interrupt container"
-            raise RuntimeError(msg)
 
     # def open_pr(self, *, trajectory, _dry_run: bool = False) -> None:
     #     """Create PR to repository
