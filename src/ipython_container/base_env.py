@@ -646,7 +646,14 @@ class BaseSWEEnv(gym.Env):
         if returncode != 0:
             raise ContainerError(f"Command '{input}' is invalid. ")
 
-    def communicate(self, input: str, timeout_duration: int | float = 25, *, set_last_action: bool = False) -> str:
+    def communicate(
+            self, 
+            input: str, 
+            timeout_duration: int | float = 25, 
+            *, 
+            set_last_action: bool = False, 
+            error_msg: str
+    ) -> str:
         """
         Sends input to container and returns output
 
