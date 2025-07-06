@@ -41,6 +41,8 @@ from ..utils.utils import (
 from ..utils.config import keys_config
 from ..utils.log import default_logger, get_logger
 
+from udocker.config import Config
+
 LONG_TIMEOUT = float(keys_config.get("SWE_AGENT_ENV_LONG_TIMEOUT", 500))
 AGENT_ACTION_TIMEOUT = float(keys_config.get("SWE_AGENT_ACTION_TIMEOUT", 120))
 PATH_TO_REQS = "/root/requirements.txt"
@@ -560,6 +562,8 @@ class BaseSWEEnv(gym.Env):
 
         try:
             self.container_obj = IPythonContainer(image=image_to_use, name=udocker_instance_name)
+            # udocker api uses Config.conf to assign container engine
+            Config.conf['container'] = self.container_obj
         except Exception as e:
             # Catch any errors during Container class instantiation (pull/create)
             msg = f"Failed to initialize udocker container '{udocker_instance_name}' from image '{image_to_use}': {e}"
