@@ -6,7 +6,7 @@ import traceback
 
 from .container import IPythonContainer, UMain
 
-from ..base_env.log import get_logger
+from ..utils.log import get_logger
 logger = get_logger("env_utils")
 
 def udocker_init():

@@ -31,15 +31,15 @@ from .utils import (
 from .container import IPythonContainer
 
 from .. import REPO_ROOT
-from ..base_env.utils import (
+from ..utils.utils import (
     InvalidGithubURL,
     format_trajectory_markdown, # fixme
     get_gh_issue_data, #fixme
     get_instances,
     parse_gh_issue_url, # fixme
 )
-from ..base_env.config import keys_config
-from ..base_env.log import default_logger, get_logger
+from ..utils.config import keys_config
+from ..utils.log import default_logger, get_logger
 
 LONG_TIMEOUT = float(keys_config.get("SWE_AGENT_ENV_LONG_TIMEOUT", 500))
 AGENT_ACTION_TIMEOUT = float(keys_config.get("SWE_AGENT_ACTION_TIMEOUT", 120))
@@ -618,7 +618,7 @@ class BaseSWEEnv(gym.Env):
         # Use self.container_obj.run() directly
         # This will call our modified executor which returns stdout, stderr, returncode
         try:
-            result = self.container_obj.run(input_command, mount_keys)
+            result = self.container_obj.run(input_command)
 
             # Update self.returncode
             self.returncode = result["returncode"]

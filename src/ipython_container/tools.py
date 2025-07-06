@@ -1,5 +1,5 @@
 from .base_env import BaseSWEEnv
-from ..base_env.commands import COMMANDS
+from ..utils.commands import COMMANDS
 import shlex # For robust quoting of arguments that might contain spaces
 
 import json
