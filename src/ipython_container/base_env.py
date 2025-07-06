@@ -28,7 +28,7 @@ from .utils import (
     copy_file_to_container,
     image_exists,
 )
-from .container import IPythonContainer
+from .container import IPythonContainer, ContainerError
 
 from .. import REPO_ROOT
 from ..utils.utils import (
@@ -626,9 +626,7 @@ class BaseSWEEnv(gym.Env):
 
             # Check for potential errors based on returncode
             if returncode != 0:
-                self.logger.warning(
-                    f"Command '{input_command}' failed with exit code {self.returncode}. "
-                )
+                raise ContainerError(f"Command '{input_command}' failed with exit code {self.returncode}. ")
         except Exception as e:
             self.logger.error(f"Error executing command '{input_command}' in udocker container: {e}")
             raise RuntimeError(f"Failed to execute command in udocker container: {e}") from e
@@ -644,7 +642,9 @@ class BaseSWEEnv(gym.Env):
         """
         assert self.container_obj is not None, "Container object is not initialized."
 
-        self.container_obj.check_syntax(input)
+        returncode = self.container_obj.check_syntax(input)
+        if returncode != 0:
+            raise ContainerError(f"Command '{input}' is invalid. ")
 
     def communicate(self, input: str, timeout_duration: int | float = 25, *, set_last_action: bool = False) -> str:
         """

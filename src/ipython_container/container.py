@@ -394,17 +394,13 @@ class _IPythonContainer:
 
         # Run syntax check
         # 0 means syntax OK, non-zero means syntax error
-        res = UMain([
+        return UMain([
             'udocker',
             '--allow-root',
             'run',
             self.name,
             syntax_check_cmd
         ]).execute()
-        if res == 0:
-            Msg().out("Syntax is valid")
-        else:
-            Msg().out("Syntax is not valid")
 
     def remove(self):
         print(f"Removing container {self.name}...")
