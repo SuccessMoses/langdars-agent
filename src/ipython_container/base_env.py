@@ -667,7 +667,7 @@ class BaseSWEEnv(gym.Env):
         """
         if input.strip() != "exit":
             self.logger.log(logging.TRACE, "Input:\n%s", input)  # type: ignore
-            self._check_syntax(input)
+            # self._check_syntax(input)
             self._communicate(
                 input,
                 timeout_duration=timeout_duration,
