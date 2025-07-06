@@ -562,7 +562,7 @@ class BaseSWEEnv(gym.Env):
 
         try:
             self.container_obj = IPythonContainer(image=image_to_use, name=udocker_instance_name)
-            # udocker api uses Config.conf to assign container engine
+            # assign container to Config,conf for udocker API
             Config.conf['container'] = self.container_obj
         except Exception as e:
             # Catch any errors during Container class instantiation (pull/create)
@@ -622,22 +622,13 @@ class BaseSWEEnv(gym.Env):
         # Use self.container_obj.run() directly
         # This will call our modified executor which returns stdout, stderr, returncode
         try:
-            result = self.container_obj.run(input_command)
-
-            # Update self.returncode
-            self.returncode = result["returncode"]
-
-            # Combine stdout and stderr for the return buffer
-            buffer = result["stdout"] + result["stderr"]
+            self.returncode = self.container_obj.run(input_command)
 
             # Check for potential errors based on returncode
             if self.returncode != 0:
                 self.logger.warning(
                     f"Command '{input_command}' failed with exit code {self.returncode}. "
-                    f"Stderr:\n{result['stderr'].strip()}"
                 )
-
-            return buffer
         except Exception as e:
             self.logger.error(f"Error executing command '{input_command}' in udocker container: {e}")
             raise RuntimeError(f"Failed to execute command in udocker container: {e}") from e
@@ -671,12 +662,10 @@ class BaseSWEEnv(gym.Env):
             output, valid = self._check_syntax(input)
             if not valid:
                 return output  # shows syntax errors
-            output = self._communicate(
+            self._communicate(
                 input,
                 timeout_duration=timeout_duration,
             )
-            self.logger.log(logging.TRACE, "Output:\n%s", output)  # type: ignore
-            self.communicate_output = output
             if set_last_action:
                 # Cannot merge this with last command, because of multiline command
                 # handling.
@@ -687,7 +676,6 @@ class BaseSWEEnv(gym.Env):
         else:
             self.container.terminate()
             self.returncode = 0
-            self.communicate_output = ""
             return ""
 
     def communicate_with_handling(self, input: str, error_msg: str, timeout_duration: int | float = 25) -> str:
