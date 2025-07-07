@@ -344,16 +344,16 @@ class BaseSWEEnv(gym.Env):
 
         assert self.container_obj is not None # Ensure container_obj is initialized
         self.container_obj.copy_file_to_container(
-            host_src_path=os.path.join(os.getcwd(), "src", "environment", "utils_codegraph.py"),
+            host_src_path=os.path.join(os.getcwd(), "src", "utils", "utils_codegraph.py"),
             container_dest_path="/root/utils_codegraph.py"
         )
         self.container_obj.copy_file_to_container(
-            host_src_path=os.path.join(os.getcwd(), "src", "environment", "construct_graph.py"),
+            host_src_path=os.path.join(os.getcwd(), "src", "utils", "construct_graph.py"),
             container_dest_path="/root/construct_graph.py"
         )
         # Move graph retrieval script to the container
         self.container_obj.copy_file_to_container(
-            host_src_path=os.path.join(os.getcwd(), "src", "environment", "retrieve_graph.py"),
+            host_src_path=os.path.join(os.getcwd(), "src", "utils", "retrieve_graph.py"),
             container_dest_path="/root/retrieve_graph.py"
         )
 
@@ -622,11 +622,12 @@ class BaseSWEEnv(gym.Env):
         # Use self.container_obj.run() directly
         # This will call our modified executor which returns stdout, stderr, returncode
         try:
-            returncode = self.container_obj.run(input_command)
+            res = self.container_obj.run(input_command)
 
             # Check for potential errors based on returncode
-            if returncode != 0:
+            if res['returncode'] != 0:
                 raise ContainerError(f"Command '{input_command}' failed with exit code {self.returncode}. ")
+            return res["output"]
         except Exception as e:
             self.logger.error(f"Error executing command '{input_command}' in udocker container: {e}")
             raise RuntimeError(f"Failed to execute command in udocker container: {e}") from e
@@ -667,20 +668,26 @@ class BaseSWEEnv(gym.Env):
         """
         if input.strip() != "exit":
             self.logger.log(logging.TRACE, "Input:\n%s", input)  # type: ignore
-            # self._check_syntax(input)
-            self._communicate(
+            # output, valid = self._check_syntax(input)
+            # if not valid:
+            #     return output  # shows syntax errors
+            output = self._communicate(
                 input,
                 timeout_duration=timeout_duration,
             )
+            self.logger.log(logging.TRACE, "Output:\n%s", output)  # type: ignore
+            self.communicate_output = output
             if set_last_action:
                 # Cannot merge this with last command, because of multiline command
                 # handling.
                 last_action_string = shlex.quote(input.strip())
                 input = f"export LAST_ACTION={last_action_string}"
                 self._communicate(input, timeout_duration=60)
+            return output
         else:
             self.container.terminate()
             self.returncode = 0
+            self.communicate_output = ""
             return ""
 
     def get_submission(self, output: str) -> str | None:

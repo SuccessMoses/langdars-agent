@@ -308,12 +308,15 @@ class BackgroundShell:
             except Empty:
                 time.sleep(0.1)
                     
-        Msg().out("\n".join(output_lines[:-1]))
+        Msg().out("\n".join(output_lines[:-1]), l=4)
         if not done:
             Msg().err(f"shell.get_output timed out after {timeout} sec")
             return 66 # timeout error
         else:
-            return int(output_lines[-1].replace("__EXIT_CODE__", ""))        
+            return {
+                "returncode": int(output_lines[-1].replace("__EXIT_CODE__", "")),
+                "output": "\n".join(output_lines[:-1]),
+            }
 
     def send_and_get_output(self, command, timeout=2):
         """Send command and wait for output"""
@@ -359,6 +362,20 @@ class _IPythonContainer:
         else:
             self.created = True
             self._setup_engine()
+
+        Config.conf['container'] = self
+        Config.conf['cmd_timeout'] = 120
+
+        dns_config_content = """search us-west1-b.c.codatalab-user-runtimes.internal c.codatalab-user-runtimes.internal google.internal
+nameserver 8.8.8.8
+options ndots:0"""
+        self.write_file_to_container(dns_config_content, "/etc/resolv.conf")
+        self.run("chmod 1777 /tmp")
+        self.run("mknod /dev/null c 1 3")
+        self.run("chmod 666 /dev/null")
+        self.run("mknod /dev/random c 1 8 && chmod 666 /dev/random")
+        self.run("mknod /dev/urandom c 1 9 && chmod 666 /dev/urandom")
+        self.run("apt update && apt install python3-pip -y")
 
     def _setup(self):
         if not os.path.exists("/home/user"):
