@@ -1,4 +1,4 @@
-#!/root/miniconda3/envs/aider/bin/python
+#!/root/miniconda3/envs/python3.10/bin/python
 
 import colorsys
 import argparse
