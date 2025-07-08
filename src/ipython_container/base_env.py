@@ -345,16 +345,16 @@ class BaseSWEEnv(gym.Env):
         assert self.container_obj is not None # Ensure container_obj is initialized
         self.container_obj.copy_host_path_to_container(
             host_src_path=os.path.join(os.getcwd(), "src", "utils", "utils_codegraph.py"),
-            container_full_dest_path="/root/utils_codegraph.py"
+            container_full_dest_path="/root"
         )
         self.container_obj.copy_host_path_to_container(
             host_src_path=os.path.join(os.getcwd(), "src", "utils", "construct_graph.py"),
-            container_full_dest_path="/root/construct_graph.py"
+            container_full_dest_path="/root"
         )
         # Move graph retrieval script to the container
         self.container_obj.copy_host_path_to_container(
             host_src_path=os.path.join(os.getcwd(), "src", "utils", "retrieve_graph.py"),
-            container_full_dest_path="/root/retrieve_graph.py"
+            container_full_dest_path="/root"
         )
 
 
