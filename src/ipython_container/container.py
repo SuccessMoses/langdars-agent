@@ -1,6 +1,7 @@
 import os
 import sys
 import shutil
+import subprocess
 
 from udocker.cli import UdockerCLI as _UdockerCLI
 from udocker.msg import Msg
@@ -12,11 +13,7 @@ from udocker.config import Config
 from udocker.container.localrepo import LocalRepository
 from udocker.container.structure import ContainerStructure
 
-from udocker.engine.base import ExecutionEngineCommon
-
-Config.conf["cmd_timeout"] = 60
-Config.conf["container"] = "__NOT_SET__"
-
+from .engine import PRootEngine
 class UdockerCLI(_UdockerCLI):
 
     def do_run(self, cmdp):
@@ -107,17 +104,15 @@ class UdockerCLI(_UdockerCLI):
                     if pull != "reuse":
                         Msg().err("Error: invalid container name")
                         return self.STATUS_ERROR
-                    
-        if Config.conf["container"] == "__NOT_SET__": #FIXME: use not isinstance()
-            msg  = "Create an instance `container` and set `Config['container'] = container`."
-            raise ContainerError(msg)
+
         exec_engine = Config.conf['container'].engine
+        exec_engine.localrepo = self.localrepo
         if not exec_engine:
             Msg().err("Error: no execution engine for this execmode")
             return self.STATUS_ERROR
 
         self._get_run_options(cmdp, exec_engine)
-        exit_status = exec_engine.run(exec_engine.opt["cmd"])
+        exit_status = exec_engine.run(container_id)
         if delete and not self.localrepo.isprotected_container(container_id):
             self.localrepo.del_container(container_id)
 
@@ -167,177 +162,8 @@ class UMain(_UMain):
 
         self.cli = UdockerCLI(self.local)
 
-
-class ChRootEngine(ExecutionEngineCommon):
-    """Docker container execution engine using chroot
-    Inherits from ContainerEngine class
-    """
-    
-    def __init__(self, localrepo, container_id):
-        self.shell = None
-        
-        # Set container_root BEFORE calling _setup
-        container_structure = ContainerStructure(localrepo, container_id)
-        container_dir, _ = container_structure.get_container_attr()
-        print(f"container_dir: {container_dir}")
-        self.container_root = container_dir + "/ROOT"
-        
-        # Now call _setup after container_root is defined
-        self._setup(container_id)
-
-    def _setup(self, container_id):
-        # setup execution
-        # if not self._run_init(container_id):
-        #     return 2
-        
-        # build the actual command for chroot
-        print(f"container_root: {self.container_root}")
-        _cmd = [
-            "sudo", "chroot", self.container_root,
-            "/bin/bash"  # Remove "-c" since we want interactive shell
-        ]
-        
-        # Initialize BackgroundShell with the chroot command
-        self.shell = BackgroundShell(init_cmd=_cmd)
-        
-        # cleanup the environment
-        # self._run_env_cleanup_dict()
-        try:
-            self.shell.start()                        
-        except Exception as e:
-            print(f"Error starting chroot shell: {e}")
-            if self.shell:
-                self.shell.stop()
-    
-    def run(self, cmd):
-        if self.shell:
-            return self.shell.send_and_get_output(cmd, timeout=Config.conf['cmd_timeout'])
-        else:
-            raise Exception("Shell not initialized")
-        
-    def cleanup(self):
-        """Clean up resources"""
-        if self.shell:
-            self.shell.stop()
-            self.shell = None
-
-
-import subprocess
-import threading
-import time
-import os
-from queue import Queue, Empty
-
-class BackgroundShell:
-    def __init__(self, init_cmd=['/bin/bash']):
-        self.process = None
-        self.output_queue = Queue()
-        self.output_thread = None
-        self.running = False
-        self.init_cmd = init_cmd
-        
-    def start(self):
-        """Start the background shell process"""
-        if self.running:
-            Msg().out("Shell is already running")
-            return
-            
-        # Start subprocess with bash (which supports 'source' command)
-        self.process = subprocess.Popen(
-            self.init_cmd,
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            bufsize=1,
-            universal_newlines=True
-        )
-        
-        self.running = True
-        
-        # Start thread to read output
-        self.output_thread = threading.Thread(target=self._read_output, daemon=True)
-        self.output_thread.start()
-        
-        Msg().out("Background shell started")
-        
-    def _read_output(self):
-        """Read output from subprocess in background thread"""
-        while self.running and self.process.poll() is None:
-            try:
-                line = self.process.stdout.readline()
-                if line:
-                    self.output_queue.put(line.rstrip())
-            except Exception as e:
-                self.output_queue.put(f"Error reading output: {e}")
-                break
-                
-    def send_command(self, command):
-        """Send a command to the shell"""
-        if not self.running or self.process is None:
-            Msg().out("Shell is not running. Call start() first.")
-            return
-            
-        try:
-            if isinstance(command, list):
-                command_str = ' '.join(str(item) for item in command)
-            else:
-                command_str = str(command)
-                
-            self.process.stdin.write(command_str + '\n')
-            self.process.stdin.flush()
-        except Exception as e:
-            Msg().err(f"Error sending command: {e}")
-
-    def get_output(self, timeout=1):
-        """Get output from the shell (non-blocking)"""
-        output_lines = []
-        end_time = time.time() + timeout
-        
-        done = False
-        while time.time() < end_time:
-            try:
-                line = self.output_queue.get(timeout=0.1)
-                output_lines.append(line)
-                
-                # Check if we got the exit code marker - command is done!
-                if line.startswith("__EXIT_CODE__"):
-                    done = True
-                    break
-                    
-            except Empty:
-                time.sleep(0.1)
-                    
-        Msg().out("\n".join(output_lines[:-1]), l=4)
-        if not done:
-            Msg().err(f"shell.get_output timed out after {timeout} sec")
-            return 66 # timeout error
-        else:
-            return {
-                "returncode": int(output_lines[-1].replace("__EXIT_CODE__", "")),
-                "output": "\n".join(output_lines[:-1]),
-            }
-
-    def send_and_get_output(self, command, timeout=2):
-        """Send command and wait for output"""
-        self.send_command(command)
-        time.sleep(0.1)  # Give command time to execute
-        return self.get_output(timeout)
-        
-    def stop(self):
-        """Stop the background shell"""
-        if self.process:
-            self.running = False
-            try:
-                self.process.terminate()
-                self.process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                self.process.kill()
-            Msg().out("Background shell stopped")
-
-    def __del__(self):
-        self.stop()
-
+class ContainerError(Exception):
+    pass
 
 class ContainerError(Exception):
     pass
@@ -364,18 +190,7 @@ class _IPythonContainer:
             self._setup_engine()
 
         Config.conf['container'] = self
-        Config.conf['cmd_timeout'] = 120
-
-        dns_config_content = """search us-west1-b.c.codatalab-user-runtimes.internal c.codatalab-user-runtimes.internal google.internal
-nameserver 8.8.8.8
-options ndots:0"""
-        self.write_file_to_container(dns_config_content, "/etc/resolv.conf")
-        self.run("chmod 1777 /tmp")
-        self.run("mknod /dev/null c 1 3")
-        self.run("chmod 666 /dev/null")
-        self.run("mknod /dev/random c 1 8 && chmod 666 /dev/random")
-        self.run("mknod /dev/urandom c 1 9 && chmod 666 /dev/urandom")
-        self.run("apt update && apt install python3-pip -y")
+        Config.conf['cmd_timeout'] = 60
 
     def _setup(self):
         if not os.path.exists("/home/user"):
@@ -392,7 +207,7 @@ options ndots:0"""
         return UMain(['udocker', '--allow-root', 'create', '--name=' + name, self.image]).execute()
 
     def _setup_engine(self):
-        self.engine = ChRootEngine(LocalRepository(), self.name)
+        self.engine = PRootEngine()
 
     def run(self, cmd):
         Msg().out(f"Running: {cmd}", l=4)
@@ -401,24 +216,9 @@ options ndots:0"""
             '--allow-root', 
             'run', 
             self.name, 
-            f'{cmd}; echo \"__EXIT_CODE__$?\"'
+            cmd,
         ]).execute()
     
-    def check_syntax(self, cmd):
-        Msg().out(f"checking syntax: '{cmd}'")
-        # Wrap with bash -n for syntax check
-        syntax_check_cmd = f"/bin/bash -n <<'EOF'\n{cmd}\nEOF"
-
-        # Run syntax check
-        # 0 means syntax OK, non-zero means syntax error
-        return UMain([
-            'udocker',
-            '--allow-root',
-            'run',
-            self.name,
-            syntax_check_cmd
-        ]).execute()
-
     def remove(self):
         print(f"Removing container {self.name}...")
         res = UMain(['udocker', '--allow-root', 'rm', self.name]).execute()
@@ -429,6 +229,15 @@ options ndots:0"""
     def __del__(self):
         if self.created:
             self.remove()
+
+
+def copy_dir(dir, final_parent_dir):
+    full_path = os.path.join(final_parent_dir, os.path.basename(dir))
+    print(f"full_path: {full_path}")
+    if os.path.exists(full_path):
+        print(f"Removing existing directory: {full_path}")
+        shutil.rmtree(full_path)
+    shutil.copytree(dir, full_path)
 
 
 
