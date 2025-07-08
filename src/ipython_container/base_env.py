@@ -603,7 +603,8 @@ class BaseSWEEnv(gym.Env):
     def _communicate(
         self,
         input_command: str, 
-        timeout_duration: int | float = 25, 
+        timeout_duration: int | float = 25,
+        raise_for_status: bool = True,
         mount_keys: list = None
     ) -> str:
         """
@@ -623,13 +624,20 @@ class BaseSWEEnv(gym.Env):
         # Use self.container_obj.run() directly
         # This will call our modified executor which returns stdout, stderr, returncode
         try:
+            # FIXME
+            # set timeout duration
+            tmp = Config.conf["cmd_timeout"]
+            Config.conf["cmd_timeout"] = timeout_duration
             res = self.container_obj.run(input_command)
 
             # Check for potential errors based on returncode
-            if res['returncode'] != 0:
-                raise ContainerError(f"Command '{input_command}' failed with exit code {self.returncode}. ")
+            if res['returncode'] != 0 and raise_for_status:
+                raise ContainerError(f"Command '{input_command}' failed with exit code {res['returncode']}. ")
+            
+            Config.conf["cmd_timeout"] = tmp # reset timeout to previous value
             return res["output"]
         except Exception as e:
+            Config.conf["cmd_timeout"] = tmp
             self.logger.error(f"Error executing command '{input_command}' in udocker container: {e}")
             raise RuntimeError(f"Failed to execute command in udocker container: {e}") from e
 
@@ -653,7 +661,8 @@ class BaseSWEEnv(gym.Env):
             input: str, 
             timeout_duration: int | float = 25, 
             *, 
-            set_last_action: bool = False, 
+            set_last_action: bool = False,
+            raise_for_status: bool = True,
             error_msg: str = "",
     ) -> str:
         """
@@ -675,6 +684,7 @@ class BaseSWEEnv(gym.Env):
             output = self._communicate(
                 input,
                 timeout_duration=timeout_duration,
+                raise_for_status=raise_for_status,
             )
             self.logger.log(logging.TRACE, "Output:\n%s", output)  # type: ignore
             self.communicate_output = output
@@ -772,7 +782,11 @@ class BaseSWEEnv(gym.Env):
                 raise ValueError(msg) from e
 
     def _conda_environment_exists(self, env_name: str) -> bool:
-        env_check = self.communicate(f"conda env list | grep {env_name}", timeout_duration=LONG_TIMEOUT)
+        env_check = self.communicate(
+            f"conda env list | grep {env_name}", 
+            timeout_duration=LONG_TIMEOUT, 
+            raise_for_status=False,
+        )
         return env_check.strip() != ""
 
     def install_env(self) -> None:
