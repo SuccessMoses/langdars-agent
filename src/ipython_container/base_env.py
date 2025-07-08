@@ -416,7 +416,8 @@ class BaseSWEEnv(gym.Env):
         self.communicate(input="cd /")
         # hardcode environment setting for code graph script
         self.logger.info('Setting up environment for code graph...')
-        output_logs = self.communicate('pip install networkx grep_ast diskcache tqdm pygments dataclasses && pip list && which pip', 
+        output_logs = \
+            self.communicate('pip install networkx grep_ast diskcache tqdm pygments dataclasses tree-sitter-languages && pip list && which pip', 
                                                      error_msg="Failed to install some packages --- ",
                                                      timeout_duration=LONG_TIMEOUT)
         # resolve the issue of incompatible version for tree-sitter
