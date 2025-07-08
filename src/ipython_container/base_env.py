@@ -430,7 +430,7 @@ class BaseSWEEnv(gym.Env):
         self.logger.info(f'Code graph path: {code_graph_path}')
 
         response = self.communicate(
-            input=f"conda run /root/construct_graph.py --repo_dir {self._repo_name} --output_dir {code_graph_path}",
+            input=f"conda run python /root/construct_graph.py --repo_dir {self._repo_name} --output_dir {code_graph_path}",
             error_msg="Failed to initialize code graph\n",
             timeout_duration=LONG_TIMEOUT,
         )
