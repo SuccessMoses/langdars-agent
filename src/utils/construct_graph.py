@@ -1,5 +1,3 @@
-#!/root/miniconda3/envs/python3.10/bin/python
-
 import colorsys
 import argparse
 import os
