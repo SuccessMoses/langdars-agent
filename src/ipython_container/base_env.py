@@ -42,7 +42,6 @@ from ..utils.utils import (
 #FIXME: relative import = 'bad'
 from ..utils.config import keys_config
 from ..utils.log import default_logger, get_logger
-from ...src import UTILS_DIR
 
 from udocker.config import Config
 
@@ -360,7 +359,10 @@ class BaseSWEEnv(gym.Env):
             host_src_path=os.path.join(os.getcwd(), "src", "utils", "retrieve_graph.py"),
             container_full_dest_path="/root"
         )
-
+        self.container_obj.copy_host_path_to_container(
+            host_src_path=os.path.join(os.path.join(os.getcwd(), "src", "utils", "_agent_skills.py")),
+            container_full_dest_path="/root/commands"
+        )
 
         # Reset environment variables
         for cmd in [
@@ -941,10 +943,6 @@ class BaseSWEEnv(gym.Env):
         """
         Adds custom commands to container
         """
-        self.container_obj.copy_host_path_to_container(
-            host_src_path=os.path.join(os.path.join(UTILS_DIR, "_agent_skills.py")),
-            container_full_dest_path="/root/commands"
-        )
         for command in commands:
             name = command["name"]
             contents = command["contents"]
