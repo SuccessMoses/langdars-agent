@@ -278,7 +278,7 @@ find_file = """find_file() {
 }
 """
 
-edit = """#!/root/miniconda3/envs/aider/bin/python
+edit = """#!/usr/bin/env python
 
 # @yaml
 # signature: edit $<to_replace> $<new_content>
@@ -379,7 +379,7 @@ if __name__ == '__main__':
     main()
 """
 
-undo_edit = """#!/root/miniconda3/envs/aider/bin/python
+undo_edit = """#!/usr/bin/env python
 
 # @yaml
 # signature: undo_edit [file_path]
@@ -530,7 +530,7 @@ if __name__ == '__main__':
     main()
 """
 
-insert = """#!/root/miniconda3/envs/aider/bin/python
+insert = """#!/usr/bin/env python
 
 # @yaml
 # signature: insert <line_number> $<content>
@@ -634,7 +634,7 @@ if __name__ == '__main__':
     main()
 """
 
-append = """#!/root/miniconda3/envs/aider/bin/python
+append = """#!/usr/bin/env python
 
 # @yaml
 # signature: append $<content>
