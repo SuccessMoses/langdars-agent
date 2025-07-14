@@ -172,7 +172,7 @@ class SWEEnv(BaseSWEEnv):
         """
         # The 'edit' command explicitly uses the $'...' syntax for literal strings
         # This is crucial for handling newlines and other special characters correctly within Bash.
-        bash_command = f"edit ${shlex.quote(to_replace)} ${shlex.quote(new_content)}"
+        bash_command = f"edit {shlex.quote(to_replace)} {shlex.quote(new_content)}"
         return self._communicate(bash_command)
     
     @tool
