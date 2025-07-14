@@ -1105,3 +1105,22 @@ COMMANDS = [
     "type": "utility"
   }
 ]
+
+ENV_VARIABLES = {
+  "WINDOW": 100,
+  "OVERLAP": 2,
+  "CURRENT_LINE": 0,
+  "CURRENT_FILE": "",
+  "SEARCH_RESULTS": (),
+  "SEARCH_FILES": (),
+  "SEARCH_INDEX": 0,
+}
+
+# env_variables:
+#   WINDOW: 100
+#   OVERLAP: 2
+#   CURRENT_LINE: 0
+#   CURRENT_FILE: ''
+#   SEARCH_RESULTS: ()
+#   SEARCH_FILES: ()
+#   SEARCH_INDEX: 0

@@ -955,8 +955,9 @@ class BaseSWEEnv(gym.Env):
                     error_msg=f"Failed to chmod {name}",
                 )
             elif command["type"] == "utility":
-                # nothing to do for utility scripts
-                pass
+                self.communicate(
+                    f"source /root/commands/{name}",
+                )
             else:
                 msg = f"Invalid command type: {command['type']}"
                 raise ValueError(msg)

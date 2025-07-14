@@ -1,5 +1,5 @@
 from .base_env import BaseSWEEnv
-from ..utils.commands import COMMANDS
+from ..utils.commands import COMMANDS, ENV_VARIABLES
 import shlex # For robust quoting of arguments that might contain spaces
 
 import json
@@ -19,9 +19,22 @@ class SWEEnv(BaseSWEEnv):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.add_commands(COMMANDS)
+        self._setup_initial_env_variables(ENV_VARIABLES)
+
+    def _setup_initial_env_variables(self, env_vars: dict) -> None:
+        """
+        Exports environment variables into the container's shell session.
+        """
+        for key, value in env_vars.items():
+            if isinstance(value, str):
+                self.communicate(f"export {key}='{value}'")
+            elif isinstance(value, (int, float)):
+                self.communicate(f"export {key}={value}")
+            elif isinstance(value, tuple) and not value:
+                 self.communicate(f"export {key}=()")
 
     # --- LangGraph Tools ---
-
+    
     @tool
     def open(self, path: str, line_number: int = 0):
         """Opens the file at the given path in the editor. \
