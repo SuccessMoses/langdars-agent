@@ -38,8 +38,11 @@ from ..utils.utils import (
     get_instances,
     parse_gh_issue_url, # fixme
 )
+
+#FIXME: relative import = 'bad'
 from ..utils.config import keys_config
 from ..utils.log import default_logger, get_logger
+from ...src import UTILS_DIR
 
 from udocker.config import Config
 
@@ -352,6 +355,7 @@ class BaseSWEEnv(gym.Env):
             container_full_dest_path="/root"
         )
         # Move graph retrieval script to the container
+        # FIXME: USE PACKAGE_DIR instead of os.getcwd()
         self.container_obj.copy_host_path_to_container(
             host_src_path=os.path.join(os.getcwd(), "src", "utils", "retrieve_graph.py"),
             container_full_dest_path="/root"
@@ -937,6 +941,10 @@ class BaseSWEEnv(gym.Env):
         """
         Adds custom commands to container
         """
+        self.container_obj.copy_host_path_to_container(
+            host_src_path=os.path.join(os.path.join(UTILS_DIR, "_agent_skills.py")),
+            container_full_dest_path="/root/commands"
+        )
         for command in commands:
             name = command["name"]
             contents = command["contents"]
