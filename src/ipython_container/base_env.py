@@ -363,6 +363,11 @@ class BaseSWEEnv(gym.Env):
             host_src_path=os.path.join(os.path.join(os.getcwd(), "src", "utils", "_agent_skills.py")),
             container_full_dest_path="/root/commands"
         )
+        self.container_obj.copy_host_path_to_container(
+            host_src_path=os.path.join(os.path.join(os.getcwd(), "src", "utils", "_linter.py")),
+            container_full_dest_path="/root/commands"
+        )
+
 
         # Reset environment variables
         for cmd in [
