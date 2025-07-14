@@ -11,10 +11,11 @@ REPO_ROOT = PACKAGE_DIR.parent
 assert REPO_ROOT.is_dir()
 CONFIG_DIR = PACKAGE_DIR.parent / "config"
 assert CONFIG_DIR.is_dir()
-UTILS_DIR = os.path.join(PACKAGE_DIR, "utils")
+UTILS_DIR = PACKAGE_DIR / "utils"
 assert UTILS_DIR.is_dir()
 
 __all__ = [
     "PACKAGE_DIR",
     "CONFIG_DIR",
+    "UTILS_DIR",
 ]
