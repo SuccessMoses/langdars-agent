@@ -34,7 +34,7 @@ class SWEEnv(BaseSWEEnv):
                  self.communicate(f"export {key}=()")
 
     # --- LangGraph Tools ---
-    
+
     @tool
     def open(self, path: str, line_number: int = 0):
         """Opens the file at the given path in the editor. \
@@ -173,4 +173,56 @@ class SWEEnv(BaseSWEEnv):
         # The 'edit' command explicitly uses the $'...' syntax for literal strings
         # This is crucial for handling newlines and other special characters correctly within Bash.
         bash_command = f"edit ${shlex.quote(to_replace)} ${shlex.quote(new_content)}"
+        return self._communicate(bash_command)
+    
+    @tool
+    def undo_edit(self, file_path: str = None):
+        """Reverts the last edit made to the specified file.
+        If no file is provided, reverts the last edit on the currently open file.
+
+        Args:
+            file_path: str = None
+                The path to the file to undo the last edit for.
+                (Optional: if not provided, undoes the last edit on the currently open file).
+
+        """
+        # The 'undo_edit' bash command (which is a Python script) can optionally
+        # take a file_path. If provided, it needs to be properly quoted.
+        if file_path:
+            bash_command = f"undo_edit {shlex.quote(file_path)}"
+        else:
+            # If no file_path is provided, call the command without an argument.
+            # The bash script will then check the CURRENT_FILE environment variable.
+            bash_command = "undo_edit"
+        return self._communicate(bash_command)    
+    
+    
+    @tool
+    def insert(self, line_number: int, content: str):
+        """Inserts <content> at the given <line_number> in the currently open file.
+
+        Args:
+            line_number: int
+                The line number where the content should be inserted.
+            content: str
+                The content to insert at the specified line number.
+
+        """
+        # The 'insert' bash command (which is a Python script) expects a line number
+        # and then the content. The content needs to be properly quoted for the shell.
+        bash_command = f"insert {line_number} {shlex.quote(content)}"
+        return self._communicate(bash_command)
+
+    @tool
+    def append(self, content: str):
+        """Appends <content> to the end of the currently open file.
+
+        Args:
+            content: str
+                The content to append to the end of the file.
+
+        """
+        # The 'append' bash command (which is a Python script) expects the content.
+        # The content needs to be properly quoted for the shell.
+        bash_command = f"append {shlex.quote(content)}"
         return self._communicate(bash_command)
